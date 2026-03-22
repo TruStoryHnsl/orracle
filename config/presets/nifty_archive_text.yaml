@@ -1,0 +1,148 @@
+name: Nifty Archive Text Cleaning
+description: "Full text cleaning pipeline: scan directory \u2192 read files \u2192 strip HTML \u2192 remove headers & boilerplate \u2192 apply regex rules \u2192 normalize unicode \u2192 reflow paragraphs \u2192 deduplicate \u2192 quality filter \u2192 pollution scan \u2192 tokenize \u2192 train/val split \u2192 export JSONL"
+nodes:
+  src:
+    type: dir_source
+    params:
+      directory: /mnt/vault/read/nifty/gay
+      extensions: ""
+      recursive: true
+      shuffle: false
+      include_dirs: true
+    position: {x: 40, y: 280}
+    enabled: true
+  reader:
+    type: file_reader
+    params:
+      encoding: utf-8
+      pdf_extract: true
+      chapter_separator: "\\n\\n---\\n\\n"
+    position: {x: 260, y: 280}
+    enabled: true
+  meta:
+    type: metadata_extract
+    params:
+      extract_title: true
+      extract_author: true
+      detect_series: true
+      detect_language: true
+    position: {x: 480, y: 280}
+    enabled: true
+  html:
+    type: html_strip
+    params:
+      skip_plain: true
+    position: {x: 700, y: 280}
+    enabled: true
+  headers:
+    type: header_strip
+    params: {}
+    position: {x: 920, y: 200}
+    enabled: true
+  boiler:
+    type: boilerplate
+    params:
+      use_defaults: true
+      patterns: ""
+      scope_lines: 0
+    position: {x: 920, y: 380}
+    enabled: true
+  rules:
+    type: regex_rules
+    params:
+      library: nifty_archive
+      categories: ""
+    position: {x: 1140, y: 280}
+    enabled: true
+  norm:
+    type: normalize
+    params:
+      form: NFC
+      fix_mojibake: true
+      straighten_quotes: false
+      strip_control: true
+      strip_replacement: true
+    position: {x: 1360, y: 200}
+    enabled: true
+  reflow:
+    type: reflow
+    params:
+      max_line_len: 80
+    position: {x: 1360, y: 380}
+    enabled: true
+  dedup:
+    type: dedup
+    params:
+      mode: exact
+      fuzzy_threshold: 0.85
+      ngram_size: 5
+    position: {x: 1580, y: 280}
+    enabled: true
+  quality:
+    type: quality_filter
+    params:
+      min_chars: 500
+      max_chars: 2000000
+      min_words: 50
+      max_non_ascii: 0.20
+      min_sentences: 3
+      max_avg_word_len: 15.0
+    position: {x: 1800, y: 280}
+    enabled: true
+  pollution:
+    type: pollution_scan
+    params:
+      detectors: ""
+      threshold: 1
+      mode: filter
+    position: {x: 2020, y: 280}
+    enabled: true
+  tokens:
+    type: tokenize
+    params:
+      encoding: cl100k_base
+    position: {x: 2240, y: 280}
+    enabled: true
+  split:
+    type: train_val_split
+    params:
+      val_ratio: 0.1
+      seed: 42
+      stratify_by: category
+      deterministic: false
+    position: {x: 2460, y: 200}
+    enabled: true
+  export_train:
+    type: export_jsonl
+    params:
+      output_dir: ./output
+      filename: train.jsonl
+      format: mlx
+      pretty: false
+    position: {x: 2680, y: 120}
+    enabled: true
+  export_val:
+    type: export_jsonl
+    params:
+      output_dir: ./output
+      filename: val.jsonl
+      format: mlx
+      pretty: false
+    position: {x: 2680, y: 300}
+    enabled: true
+connections:
+  - [src, files, reader, files]
+  - [reader, batch, meta, text]
+  - [meta, enriched, html, text]
+  - [html, cleaned, headers, text]
+  - [headers, cleaned, boiler, text]
+  - [boiler, cleaned, rules, text]
+  - [rules, cleaned, norm, text]
+  - [norm, cleaned, reflow, text]
+  - [reflow, cleaned, dedup, text]
+  - [dedup, unique, quality, text]
+  - [quality, passed, pollution, text]
+  - [pollution, clean, tokens, text]
+  - [tokens, counted, split, in]
+  - [split, train, export_train, in]
+  - [split, val, export_val, in]

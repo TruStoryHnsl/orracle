@@ -1,0 +1,413 @@
+{% extends "base.html" %}
+{% block title %}Models — Orracle Trainer{% endblock %}
+
+{% block content %}
+<div class="section-header">
+    <h1>Models</h1>
+    <div class="btn-group">
+        <button class="btn" onclick="refreshModels()">Refresh</button>
+        <a href="/export" class="btn btn-primary">Export New</a>
+    </div>
+</div>
+
+<!-- Tab nav -->
+<div class="tab-nav mb-2">
+    <button class="tab active" onclick="switchTab('ollama', this)">Ollama Models ({{ ollama_models|length }})</button>
+    <button class="tab" onclick="switchTab('adapters', this)">Adapters ({{ adapters|length }})</button>
+    <button class="tab" onclick="switchTab('gguf', this)">GGUF Files ({{ gguf_files|length }})</button>
+    {% if remote_machines %}<button class="tab" onclick="switchTab('remote', this)">Remote</button>{% endif %}
+</div>
+
+<!-- Ollama Models -->
+<div class="tab-panel active" id="tab-ollama">
+{% if ollama_models %}
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Size</th>
+                <th>Modified</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for m in ollama_models %}
+            <tr>
+                <td>
+                    <span class="text-accent">{{ m.name }}</span>
+                    <div class="text-muted" style="font-size:0.75rem">{{ m.id }}</div>
+                </td>
+                <td>{{ m.size }}</td>
+                <td>{{ m.modified }}</td>
+                <td>
+                    {% if m.name in running_names %}
+                    <span class="badge badge-running">loaded</span>
+                    {% else %}
+                    <span class="badge badge-completed">ready</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <div class="btn-group">
+                        <button class="btn btn-sm" onclick="showModelInfo('{{ m.name }}')">Info</button>
+                        <button class="btn btn-sm" onclick="copyModel('{{ m.name }}')">Copy</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteModel('{{ m.name }}')">Delete</button>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card empty-state">
+    <p>No Ollama models found.</p>
+    <p class="text-muted">Install Ollama and pull a model, or export one from the <a href="/export">Export</a> page.</p>
+</div>
+{% endif %}
+</div>
+
+<!-- Adapters -->
+<div class="tab-panel" id="tab-adapters">
+{% if adapters %}
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Parent</th>
+                <th>Size</th>
+                <th>Modified</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for a in adapters %}
+            <tr>
+                <td><span class="text-accent">{{ a.name }}</span></td>
+                <td class="text-secondary">{{ a.parent }}</td>
+                <td>{{ a.size_mb }} MB</td>
+                <td>{{ a.modified }}</td>
+                <td>
+                    <a href="/export?adapter={{ a.path }}" class="btn btn-sm btn-primary">Export</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card empty-state">
+    <p>No adapter checkpoints found.</p>
+    <p class="text-muted">Adapters appear after training runs complete.</p>
+</div>
+{% endif %}
+</div>
+
+<!-- GGUF Files -->
+<div class="tab-panel" id="tab-gguf">
+{% if gguf_files %}
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Size</th>
+                <th>Modified</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for g in gguf_files %}
+            <tr>
+                <td>
+                    <span class="text-accent">{{ g.name }}</span>
+                    <div class="text-muted" style="font-size:0.75rem">{{ g.dir }}</div>
+                </td>
+                <td>{{ g.size_gb }} GB</td>
+                <td>{{ g.modified }}</td>
+                <td>
+                    <a href="/export?gguf={{ g.path }}" class="btn btn-sm btn-primary">Create Ollama</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card empty-state">
+    <p>No GGUF files found.</p>
+    <p class="text-muted">GGUF files are created during the export process.</p>
+</div>
+{% endif %}
+</div>
+
+<!-- Remote Adapters -->
+{% if remote_machines %}
+<div class="tab-panel" id="tab-remote">
+    <div class="card">
+        <div class="section-header" style="margin-bottom:1rem">
+            <h3>Remote Adapters</h3>
+            <div class="btn-group">
+                <select id="remote-machine-select" class="form-select" style="min-width:150px">
+                    {% for name, m in remote_machines.items() %}
+                    <option value="{{ name }}">{{ name }}</option>
+                    {% endfor %}
+                </select>
+                <button class="btn" onclick="scanRemoteAdapters()">Scan</button>
+            </div>
+        </div>
+        <p class="text-muted" style="margin-bottom:1rem">
+            Scan remote machines for trained adapters and download them for export.
+        </p>
+        <div id="remote-adapters-content">
+            <div class="empty-state">
+                <p class="text-muted">Select a machine and click Scan to find adapters.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active downloads -->
+    <div id="download-status" style="margin-top:1rem;display:none">
+        <div class="card">
+            <h3 style="margin-bottom:0.5rem">Downloads</h3>
+            <div id="download-list"></div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Model Info Modal -->
+<div class="modal-overlay" id="model-modal" style="display:none" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+        <div class="section-header">
+            <h3 id="modal-title">Model Info</h3>
+            <button class="btn btn-sm" onclick="closeModal()">Close</button>
+        </div>
+        <pre class="log-viewer" id="modal-body" style="max-height:60vh;margin-top:0.5rem"></pre>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function switchTab(name, btn) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    btn.classList.add('active');
+}
+
+function refreshModels() {
+    location.reload();
+}
+
+function showModelInfo(name) {
+    document.getElementById('modal-title').textContent = name;
+    document.getElementById('modal-body').textContent = 'Loading...';
+    document.getElementById('model-modal').style.display = 'flex';
+
+    fetch('/api/ollama/show/' + encodeURIComponent(name))
+        .then(r => r.json())
+        .then(d => {
+            document.getElementById('modal-body').textContent = d.modelfile || d.error || 'No info';
+        })
+        .catch(e => {
+            document.getElementById('modal-body').textContent = 'Error: ' + e;
+        });
+}
+
+function closeModal() {
+    document.getElementById('model-modal').style.display = 'none';
+}
+
+function deleteModel(name) {
+    if (!confirm('Delete Ollama model "' + name + '"?')) return;
+    fetch('/api/ollama/delete/' + encodeURIComponent(name), {method: 'POST'})
+        .then(r => r.json())
+        .then(d => {
+            if (d.ok) { showToast('Model deleted', 'success'); location.reload(); }
+            else showToast('Delete failed: ' + (d.stderr || 'unknown'), 'error');
+        })
+        .catch(e => showToast('Error: ' + e, 'error'));
+}
+
+function copyModel(name) {
+    const dest = prompt('New model name:', name.replace(':latest', '') + '-copy');
+    if (!dest) return;
+    fetch('/api/ollama/copy', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({source: name, dest: dest})
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.ok) { showToast('Model copied', 'success'); location.reload(); }
+        else showToast('Copy failed: ' + (d.stderr || 'unknown'), 'error');
+    })
+    .catch(e => showToast('Error: ' + e, 'error'));
+}
+
+// --- Remote adapter scanning and downloading ---
+
+function _el(tag, attrs, children) {
+    const el = document.createElement(tag);
+    if (attrs) Object.entries(attrs).forEach(([k, v]) => {
+        if (k === 'textContent') el.textContent = v;
+        else if (k === 'className') el.className = v;
+        else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+        else el.setAttribute(k, v);
+    });
+    if (children) children.forEach(c => { if (c) el.appendChild(c); });
+    return el;
+}
+
+function scanRemoteAdapters() {
+    const machine = document.getElementById('remote-machine-select').value;
+    const content = document.getElementById('remote-adapters-content');
+    content.replaceChildren(_el('p', {textContent: 'Scanning ' + machine + '...', className: 'text-muted'}));
+
+    fetch('/api/remote/' + encodeURIComponent(machine) + '/adapters')
+        .then(r => r.json())
+        .then(adapters => {
+            if (adapters.error) {
+                content.replaceChildren(
+                    _el('div', {className: 'empty-state'}, [
+                        _el('p', {textContent: 'Error: ' + adapters.error, className: 'text-muted'})
+                    ])
+                );
+                return;
+            }
+            if (!adapters.length) {
+                content.replaceChildren(
+                    _el('div', {className: 'empty-state'}, [
+                        _el('p', {textContent: 'No adapters found on ' + machine + '.', className: 'text-muted'})
+                    ])
+                );
+                return;
+            }
+            const thead = _el('thead', null, [
+                _el('tr', null, ['Name', 'Size', 'Checkpoints', 'Modified', 'Actions'].map(
+                    h => _el('th', {textContent: h})
+                ))
+            ]);
+            const tbody = _el('tbody');
+            adapters.forEach(a => {
+                const dlBtn = _el('button', {
+                    textContent: 'Download', className: 'btn btn-sm btn-primary',
+                    onclick: function() { downloadAdapter(machine, a.path, a.name, this); }
+                });
+                const nameCell = _el('td', null, [
+                    _el('span', {textContent: a.name, className: 'text-accent'}),
+                    _el('div', {textContent: a.path, className: 'text-muted', style: 'font-size:0.75rem'})
+                ]);
+                tbody.appendChild(_el('tr', null, [
+                    nameCell,
+                    _el('td', {textContent: a.size}),
+                    _el('td', {textContent: String(a.checkpoints)}),
+                    _el('td', {textContent: a.modified || '\u2014'}),
+                    _el('td', null, [dlBtn])
+                ]));
+            });
+            content.replaceChildren(_el('table', null, [thead, tbody]));
+        })
+        .catch(e => {
+            content.replaceChildren(
+                _el('div', {className: 'empty-state'}, [
+                    _el('p', {textContent: 'Error: ' + e, className: 'text-muted'})
+                ])
+            );
+        });
+}
+
+function downloadAdapter(machine, remotePath, name, btn) {
+    if (!confirm('Download adapter "' + name + '" from ' + machine + '?\n\nThis may take a few minutes for large adapters.')) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+
+    fetch('/api/remote/download-adapter', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({machine: machine, remote_path: remotePath})
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.error) {
+            showToast('Download failed: ' + d.error, 'error');
+            btn.disabled = false;
+            btn.textContent = 'Download';
+            return;
+        }
+        showToast('Download started: ' + name, 'success');
+        btn.textContent = 'Downloading...';
+        pollDownload(d.task_id, btn, name);
+    })
+    .catch(e => {
+        showToast('Error: ' + e, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Download';
+    });
+}
+
+function pollDownload(taskId, btn, name) {
+    const statusDiv = document.getElementById('download-status');
+    const listDiv = document.getElementById('download-list');
+    statusDiv.style.display = 'block';
+
+    const itemId = 'dl-' + taskId;
+    if (!document.getElementById(itemId)) {
+        const badge = _el('span', {
+            textContent: 'downloading', className: 'badge badge-running',
+            id: 'dl-badge-' + taskId
+        });
+        const item = _el('div', {id: itemId, style: 'padding:0.5rem 0;border-bottom:1px solid var(--border)'}, [
+            _el('span', {textContent: name + ' ', className: 'text-accent'}),
+            badge
+        ]);
+        listDiv.appendChild(item);
+    }
+
+    const check = () => {
+        fetch('/api/remote/download/' + taskId)
+            .then(r => r.json())
+            .then(d => {
+                if (d.status === 'running') {
+                    setTimeout(check, 2000);
+                    return;
+                }
+                const badge = document.getElementById('dl-badge-' + taskId);
+                if (d.status === 'completed') {
+                    if (badge) { badge.className = 'badge badge-completed'; badge.textContent = 'completed'; }
+                    if (btn) { btn.textContent = 'Downloaded'; btn.className = 'btn btn-sm'; }
+                    showToast(name + ' downloaded \u2014 now visible in Adapters tab', 'success');
+                } else {
+                    if (badge) { badge.className = 'badge badge-failed'; badge.textContent = 'failed'; }
+                    if (btn) { btn.disabled = false; btn.textContent = 'Retry'; }
+                    showToast('Download failed: ' + (d.error || 'unknown'), 'error');
+                }
+            })
+            .catch(() => setTimeout(check, 3000));
+    };
+    setTimeout(check, 2000);
+}
+
+// Resume polling for active downloads on page load
+{% if downloads %}
+(function() {
+    var active = {{ downloads|tojson }};
+    active.forEach(function(dl) {
+        if (dl.status === 'running') {
+            pollDownload(dl.id, null, dl.adapter_name);
+        }
+    });
+})();
+{% endif %}
+
+// Keyboard shortcut to close modal
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeModal();
+});
+</script>
+{% endblock %}

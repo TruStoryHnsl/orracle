@@ -1,0 +1,501 @@
+{% extends "base.html" %}
+{% block title %}Machines — Orracle Trainer{% endblock %}
+
+{% block content %}
+<div class="section-header">
+    <h1>Machines</h1>
+    <button class="btn" onclick="document.getElementById('add-form').style.display='block'">Add Machine</button>
+</div>
+
+<!-- Add machine form (hidden by default) -->
+<div id="add-form" class="card mb-2" style="display:none">
+    <h3>Add Remote Machine</h3>
+    <form onsubmit="addMachine(event)">
+        <div class="form-row">
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="m-name" placeholder="macbook" required>
+            </div>
+            <div class="form-group">
+                <label>SSH Hostname</label>
+                <input type="text" id="m-hostname" placeholder="user@192.168.1.100" required>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Niftytune Path</label>
+                <input type="text" id="m-path" placeholder="~/niftytune" value="~/niftytune">
+            </div>
+            <div class="form-group">
+                <label>MAC Address (for Wake-on-LAN)</label>
+                <input type="text" id="m-mac" placeholder="aa:bb:cc:dd:ee:ff">
+            </div>
+        </div>
+        <div class="btn-group">
+            <button type="submit" class="btn btn-primary">Add</button>
+            <button type="button" class="btn" onclick="document.getElementById('add-form').style.display='none'">Cancel</button>
+        </div>
+    </form>
+</div>
+
+<!-- Local machine -->
+<div class="card mb-2">
+    <h3><span class="status-dot online"></span>{{ hw.hostname }} <span class="text-muted" style="font-size:0.8rem">(local)</span></h3>
+
+    <h4 class="mt-2">Hardware</h4>
+    <div class="metric-row"><span class="metric-label">Platform</span><span class="metric-value">{{ hw.platform }} {{ hw.arch }}</span></div>
+    <div class="metric-row"><span class="metric-label">CPU</span><span class="metric-value">{{ hw.cpu.model or hw.cpu.arch }}</span></div>
+    <div class="metric-row"><span class="metric-label">Cores</span><span class="metric-value">{{ hw.cpu.cores }}</span></div>
+    {% if hw.cpu.chip %}
+    <div class="metric-row"><span class="metric-label">Chip</span><span class="metric-value">{{ hw.cpu.chip }}</span></div>
+    {% endif %}
+    <div class="metric-row"><span class="metric-label">RAM</span><span class="metric-value">{{ hw.ram.total_gb }} GB total{% if hw.ram.available_gb %}, {{ hw.ram.available_gb }} GB free{% endif %}</span></div>
+
+    {% if hw.gpu %}
+    <h4 class="mt-2">GPU</h4>
+    {% for id, gpu in hw.gpu.items() %}
+    <div class="metric-row"><span class="metric-label">{{ id }}</span><span class="metric-value">{{ gpu.name }}</span></div>
+    {% if gpu.vram_total_mb %}
+    <div class="metric-row"><span class="metric-label">VRAM</span><span class="metric-value">{{ gpu.vram_total_mb }} MB total, {{ gpu.vram_free_mb }} MB free</span></div>
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+
+    <h4 class="mt-2">Frameworks</h4>
+    {% for name, info in hw.frameworks.items() %}
+    <div class="metric-row">
+        <span class="metric-label">{{ name }}</span>
+        <span class="metric-value">
+            {% if info %}
+                <span class="text-success">{{ info.version or 'installed' }}</span>
+                {% if info.cuda %} (CUDA {{ info.cuda_version }}){% endif %}
+                {% if info.mps %} (MPS){% endif %}
+            {% else %}
+                <span class="text-muted">not installed</span>
+            {% endif %}
+        </span>
+    </div>
+    {% endfor %}
+
+    <h4 class="mt-2">Capabilities</h4>
+    <div>
+        {% for cap in ['mlx_lora', 'unsloth_qlora', 'transformers_sft', 'ollama_serve'] %}
+        <span class="cap-tag {{ 'available' if cap in hw.capabilities else 'unavailable' }}">{{ cap }}</span>
+        {% endfor %}
+    </div>
+
+    <h4 class="mt-2">Disk</h4>
+    {% for name, disk in hw.disk.items() %}
+    <div class="metric-row"><span class="metric-label">{{ name }}</span><span class="metric-value">{{ disk.free_gb }} GB free / {{ disk.total_gb }} GB ({{ disk.used_pct }}% used)</span></div>
+    {% endfor %}
+
+    {% set local_m = machines.get('local', {}) %}
+    {% if local_m.services %}
+    <h4 class="mt-2">Services</h4>
+    <div id="services-local" class="service-tags">
+        {% for svc_name, svc in local_m.services.items() %}
+        <span class="cap-tag unavailable" id="svc-local-{{ svc_name }}">{{ svc_name }}</span>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+
+<!-- Remote machines -->
+{% for name, machine in machines.items() if not machine.get('is_local') %}
+<div class="card mb-2" id="machine-{{ name }}">
+    <div class="section-header" style="margin-bottom:0.5rem">
+        <h3><span class="status-dot offline" id="dot-{{ name }}"></span>{{ name }}</h3>
+        <div class="btn-group">
+            <button class="btn btn-sm" onclick="testConnection('{{ name }}')">Test</button>
+            <button class="btn btn-sm" onclick="detectHardware('{{ name }}')">Detect</button>
+            <button class="btn btn-sm" onclick="detectTraining('{{ name }}')">Training?</button>
+            <button class="btn btn-sm" onclick="wakeMachine('{{ name }}')" title="Send Wake-on-LAN packet">Wake</button>
+        </div>
+    </div>
+    <div class="metric-row"><span class="metric-label">Hostname</span><span class="metric-value">{{ machine.hostname }}</span></div>
+    {% if machine.niftytune_path %}
+    <div class="metric-row"><span class="metric-label">Niftytune</span><span class="metric-value">{{ machine.niftytune_path }}</span></div>
+    {% endif %}
+
+    <!-- Cached hardware info -->
+    {% if machine._hw %}
+    <h4 class="mt-2">Hardware <span class="text-muted" style="font-size:0.75rem">(cached {{ machine._hw_ts }})</span></h4>
+    <div class="metric-row"><span class="metric-label">Platform</span><span class="metric-value">{{ machine._hw.platform }} {{ machine._hw.arch }}</span></div>
+    {% if machine._hw.cpu %}
+    <div class="metric-row"><span class="metric-label">CPU</span><span class="metric-value">{{ machine._hw.cpu.model or machine._hw.cpu.arch }} ({{ machine._hw.cpu.cores }} cores)</span></div>
+    {% endif %}
+    {% if machine._hw.ram %}
+    <div class="metric-row"><span class="metric-label">RAM</span><span class="metric-value">{{ machine._hw.ram.total_gb }} GB</span></div>
+    {% endif %}
+    {% if machine._hw.gpu %}
+    {% for gid, gpu in machine._hw.gpu.items() %}
+    <div class="metric-row"><span class="metric-label">GPU</span><span class="metric-value">{{ gpu.name }}</span></div>
+    {% endfor %}
+    {% endif %}
+    {% if machine._hw.capabilities %}
+    <div class="mt-1">
+        {% for cap in machine._hw.capabilities %}
+        <span class="cap-tag available">{{ cap }}</span>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% if machine._hw.disk and machine._hw.disk.home %}
+    <div class="metric-row"><span class="metric-label">Disk</span><span class="metric-value">{{ machine._hw.disk.home.free_gb }} GB free / {{ machine._hw.disk.home.total_gb }} GB</span></div>
+    {% endif %}
+    {% endif %}
+
+    {% if machine.services %}
+    <h4 class="mt-2">Services</h4>
+    <div id="services-{{ name }}" class="service-tags">
+        {% for svc_name, svc in machine.services.items() %}
+        <span class="cap-tag unavailable" id="svc-{{ name }}-{{ svc_name }}">{{ svc_name }}</span>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Dynamic content injected by JS -->
+    <div id="info-{{ name }}" class="mt-1"></div>
+
+    <!-- Remote log viewer -->
+    <div id="logs-{{ name }}" style="display:none" class="mt-2">
+        <h4>Training Logs</h4>
+        <div id="loglist-{{ name }}"></div>
+    </div>
+
+    <!-- Remote monitor -->
+    <div id="monitor-{{ name }}" style="display:none" class="mt-2">
+        <div class="section-header" style="margin-bottom:0.5rem">
+            <h4>Live Monitor</h4>
+            <button class="btn btn-sm btn-danger" onclick="stopMonitor('{{ name }}')">Stop Monitor</button>
+        </div>
+        <div class="log-viewer" id="monlog-{{ name }}" style="max-height:300px"></div>
+        <div class="flex justify-between mt-1" style="font-size:0.8rem">
+            <span id="monstats-{{ name }}" class="text-muted"></span>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function addMachine(e) {
+    e.preventDefault();
+    fetch('/api/machines/add', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            name: document.getElementById('m-name').value,
+            hostname: document.getElementById('m-hostname').value,
+            niftytune_path: document.getElementById('m-path').value,
+            mac_address: document.getElementById('m-mac').value,
+        })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.error) { showToast(d.error, 'error'); return; }
+        showToast('Machine added', 'success');
+        location.reload();
+    })
+    .catch(e => showToast('Failed: ' + e, 'error'));
+}
+
+function testConnection(name) {
+    const dot = document.getElementById('dot-' + name);
+    const info = document.getElementById('info-' + name);
+    info.textContent = 'Testing SSH connection...';
+    dot.className = 'status-dot offline';
+
+    fetch('/api/remote/test/' + name, {method: 'POST'})
+        .then(r => r.json())
+        .then(d => {
+            if (d.reachable) {
+                dot.className = 'status-dot online';
+                info.textContent = '';
+                showToast(name + ' is reachable', 'success');
+            } else {
+                info.textContent = 'Connection failed: ' + (d.error || 'unknown');
+                info.style.color = 'var(--error)';
+                showToast(name + ' unreachable', 'error');
+            }
+        })
+        .catch(e => { info.textContent = 'Error: ' + e; });
+}
+
+function detectHardware(name) {
+    const info = document.getElementById('info-' + name);
+    info.textContent = 'Detecting hardware (this takes ~10s)...';
+
+    fetch('/api/remote/hardware/' + name, {method: 'POST'})
+        .then(r => r.json())
+        .then(d => {
+            if (d._error) {
+                info.textContent = 'Detection failed: ' + d._error;
+                info.style.color = 'var(--error)';
+            } else {
+                document.getElementById('dot-' + name).className = 'status-dot online';
+                showToast('Hardware detected for ' + name, 'success');
+                location.reload();
+            }
+        })
+        .catch(e => { info.textContent = 'Error: ' + e; });
+}
+
+function wakeMachine(name) {
+    fetch('/api/remote/wol/' + name, {method: 'POST'})
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.ok) {
+                showToast('Wake packet sent to ' + name, 'success');
+            } else {
+                showToast(d.error || 'WoL failed', 'error');
+            }
+        })
+        .catch(function(e) { showToast('WoL error: ' + e, 'error'); });
+}
+
+function detectTraining(name) {
+    const info = document.getElementById('info-' + name);
+    info.textContent = 'Checking for training processes...';
+
+    fetch('/api/remote/training/' + name)
+        .then(r => r.json())
+        .then(jobs => {
+            if (jobs.length === 0) {
+                info.textContent = 'No training detected.';
+                info.style.color = 'var(--text-muted)';
+                // Also show available logs
+                showLogs(name);
+            } else {
+                let msg = jobs.length + ' training process(es) found:\n';
+                jobs.forEach(j => { msg += '  PID ' + j.pid + ' — ' + j.framework + '\n'; });
+                info.textContent = msg;
+                info.style.color = 'var(--success)';
+                showLogs(name);
+            }
+        })
+        .catch(e => { info.textContent = 'Error: ' + e; });
+}
+
+function showLogs(name) {
+    const logsDiv = document.getElementById('logs-' + name);
+    const loglist = document.getElementById('loglist-' + name);
+    logsDiv.style.display = 'block';
+    loglist.textContent = 'Loading logs...';
+
+    fetch('/api/remote/logs/' + name)
+        .then(r => r.json())
+        .then(logs => {
+            while (loglist.firstChild) loglist.removeChild(loglist.firstChild);
+            if (logs.length === 0) {
+                loglist.textContent = 'No log files found.';
+                return;
+            }
+            logs.forEach(log => {
+                const row = document.createElement('div');
+                row.className = 'metric-row';
+                row.style.cursor = 'pointer';
+
+                const label = document.createElement('span');
+                label.className = 'metric-label';
+                label.textContent = log.name + ' (' + log.size + ' bytes)';
+                row.appendChild(label);
+
+                const btns = document.createElement('div');
+                btns.className = 'btn-group';
+
+                const viewBtn = document.createElement('button');
+                viewBtn.className = 'btn btn-sm';
+                viewBtn.textContent = 'View';
+                viewBtn.onclick = function() { viewLog(name, log.path); };
+                btns.appendChild(viewBtn);
+
+                const monBtn = document.createElement('button');
+                monBtn.className = 'btn btn-sm btn-primary';
+                monBtn.textContent = 'Monitor';
+                monBtn.onclick = function() { startMonitor(name, log.path); };
+                btns.appendChild(monBtn);
+
+                row.appendChild(btns);
+                loglist.appendChild(row);
+            });
+        })
+        .catch(e => { loglist.textContent = 'Error: ' + e; });
+}
+
+function viewLog(name, logPath) {
+    const monDiv = document.getElementById('monitor-' + name);
+    const logEl = document.getElementById('monlog-' + name);
+    monDiv.style.display = 'block';
+
+    while (logEl.firstChild) logEl.removeChild(logEl.firstChild);
+    const loading = document.createElement('div');
+    loading.className = 'text-muted';
+    loading.textContent = 'Loading...';
+    logEl.appendChild(loading);
+
+    fetch('/api/remote/log/' + name, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({log_path: logPath, tail: 100})
+    })
+    .then(r => r.json())
+    .then(d => {
+        while (logEl.firstChild) logEl.removeChild(logEl.firstChild);
+        (d.lines || []).forEach(line => {
+            const div = document.createElement('div');
+            div.className = 'log-line';
+            if (line.includes('Train loss') || line.includes('Val loss')) div.className += ' metric';
+            if (line.toLowerCase().includes('nan')) div.className += ' error';
+            if (line.includes('Saved adapter')) div.className += ' save';
+            div.textContent = line;
+            logEl.appendChild(div);
+        });
+        logEl.scrollTop = logEl.scrollHeight;
+
+        // Show parsed metrics summary
+        const stats = document.getElementById('monstats-' + name);
+        const trainM = (d.metrics || []).filter(m => m.type === 'train');
+        if (trainM.length > 0) {
+            const last = trainM[trainM.length - 1];
+            const parts = ['Iter ' + last.iter];
+            if (last.train_loss) parts.push('Loss: ' + last.train_loss.toFixed(4));
+            if (last.tokens_per_sec) parts.push(last.tokens_per_sec.toFixed(1) + ' tok/s');
+            if (last.peak_mem_gb) parts.push(last.peak_mem_gb.toFixed(1) + ' GB mem');
+            stats.textContent = parts.join(' \u00b7 ');
+        }
+    })
+    .catch(e => {
+        while (logEl.firstChild) logEl.removeChild(logEl.firstChild);
+        const err = document.createElement('div');
+        err.className = 'text-error';
+        err.textContent = 'Error: ' + e;
+        logEl.appendChild(err);
+    });
+}
+
+// Active monitors per machine
+const activeMonitors = {};
+
+function startMonitor(name, logPath) {
+    const monDiv = document.getElementById('monitor-' + name);
+    const logEl = document.getElementById('monlog-' + name);
+    monDiv.style.display = 'block';
+
+    while (logEl.firstChild) logEl.removeChild(logEl.firstChild);
+    const info = document.createElement('div');
+    info.className = 'text-muted';
+    info.textContent = 'Starting monitor...';
+    logEl.appendChild(info);
+
+    fetch('/api/remote/monitor/start', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({machine: name, log_path: logPath, total_iters: 0})
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.error) {
+            info.textContent = 'Failed: ' + d.error;
+            info.style.color = 'var(--error)';
+            return;
+        }
+        activeMonitors[name] = d.monitor_id;
+        while (logEl.firstChild) logEl.removeChild(logEl.firstChild);
+        connectMonitorSSE(name, d.monitor_id);
+    })
+    .catch(e => { info.textContent = 'Error: ' + e; });
+}
+
+function connectMonitorSSE(name, monitorId) {
+    const logEl = document.getElementById('monlog-' + name);
+    const stats = document.getElementById('monstats-' + name);
+
+    const evtSource = new EventSource('/api/remote/monitor/stream/' + monitorId);
+    activeMonitors[name + '_sse'] = evtSource;
+
+    evtSource.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+
+        if (data.type === 'log') {
+            const div = document.createElement('div');
+            div.className = 'log-line';
+            if (data.line.includes('Train loss') || data.line.includes('Val loss')) div.className += ' metric';
+            if (data.line.toLowerCase().includes('nan')) div.className += ' error';
+            if (data.line.includes('Saved adapter')) div.className += ' save';
+            div.textContent = data.line;
+            logEl.appendChild(div);
+            while (logEl.children.length > 500) logEl.removeChild(logEl.firstChild);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        if (data.type === 'metric' && data.train_loss !== undefined) {
+            const parts = ['Iter ' + data.iter];
+            if (data.train_loss) parts.push('Loss: ' + data.train_loss.toFixed(4));
+            if (data.tokens_per_sec) parts.push(data.tokens_per_sec.toFixed(1) + ' tok/s');
+            if (data.peak_mem_gb) parts.push(data.peak_mem_gb.toFixed(1) + ' GB mem');
+            stats.textContent = parts.join(' \u00b7 ');
+        }
+
+        if (data.type === 'done') {
+            const div = document.createElement('div');
+            div.className = 'log-line save';
+            div.textContent = '--- Stream ended ---';
+            logEl.appendChild(div);
+            evtSource.close();
+        }
+
+        if (data.type === 'error') {
+            const div = document.createElement('div');
+            div.className = 'log-line error';
+            div.textContent = 'Error: ' + data.message;
+            logEl.appendChild(div);
+            evtSource.close();
+        }
+    };
+
+    evtSource.onerror = function() {
+        const div = document.createElement('div');
+        div.className = 'log-line error';
+        div.textContent = '--- SSE connection lost ---';
+        logEl.appendChild(div);
+    };
+}
+
+function stopMonitor(name) {
+    const monId = activeMonitors[name];
+    const sse = activeMonitors[name + '_sse'];
+    if (sse) sse.close();
+    if (monId) {
+        fetch('/api/remote/monitor/stop/' + monId, {method: 'POST'});
+    }
+    document.getElementById('monitor-' + name).style.display = 'none';
+}
+
+// Probe services for all machines on page load
+function probeServices(machineName) {
+    fetch('/api/machines/' + machineName + '/services')
+        .then(r => r.json())
+        .then(services => {
+            for (const [svc, info] of Object.entries(services)) {
+                const el = document.getElementById('svc-' + machineName + '-' + svc);
+                if (el) {
+                    el.className = 'cap-tag ' + (info.available ? 'available' : 'unavailable');
+                    if (info.available && info.url) {
+                        el.style.cursor = 'pointer';
+                        el.title = info.url;
+                    }
+                }
+            }
+        })
+        .catch(() => {});
+}
+
+// Probe all machines
+document.addEventListener('DOMContentLoaded', function() {
+    {% for name in machines %}
+    probeServices('{{ name }}');
+    {% endfor %}
+});
+</script>
+{% endblock %}

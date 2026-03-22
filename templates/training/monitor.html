@@ -1,0 +1,342 @@
+{% extends "base.html" %}
+{% block title %}{{ job.output_name or job_id }} — Orracle Trainer{% endblock %}
+
+{% block head %}
+<script src="{{ url_for('static', filename='chart.min.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="section-header">
+    <div>
+        <h1 style="margin-bottom:0">{{ job.output_name or job_id }}</h1>
+        <span class="text-muted">{{ job.framework }} on {{ job.machine }} &mdash; started {{ job.started }}</span>
+    </div>
+    <div class="btn-group">
+        {% if job.status == 'running' %}
+        <button class="btn btn-danger btn-sm" id="stop-btn" onclick="stopJob()">Stop</button>
+        {% endif %}
+        {% if job.status in ('failed', 'cancelled', 'completed') %}
+        <button class="btn btn-primary btn-sm" id="retry-btn" onclick="retryJob()">Retry from Checkpoint</button>
+        {% endif %}
+        <a href="/" class="btn btn-sm">Back</a>
+    </div>
+</div>
+
+<div class="monitor-grid mt-2">
+    <!-- Left: chart + log -->
+    <div>
+        <div class="chart-container mb-2">
+            <canvas id="loss-chart"></canvas>
+        </div>
+        <h3 class="mb-1">Log Output</h3>
+        <div class="log-viewer" id="log-viewer"></div>
+    </div>
+
+    <!-- Right: metrics sidebar -->
+    <div class="monitor-sidebar">
+        <div class="card">
+            <h3>Status</h3>
+            <span class="badge badge-{{ job.status }}" id="status-badge">{{ job.status }}</span>
+        </div>
+        <div class="card">
+            <h3>Progress</h3>
+            <div class="progress-bar">
+                <div class="fill" id="progress-fill" style="width:0%"></div>
+            </div>
+            <div class="metric-row"><span class="metric-label">Iteration</span><span class="metric-value" id="m-iter">-</span></div>
+            <div class="metric-row"><span class="metric-label">Total</span><span class="metric-value">{{ job.total_iters }}</span></div>
+            <div class="metric-row"><span class="metric-label">ETA</span><span class="metric-value" id="m-eta">-</span></div>
+        </div>
+        <div class="card">
+            <h3>Metrics</h3>
+            <div class="metric-row"><span class="metric-label">Train Loss</span><span class="metric-value" id="m-loss">-</span></div>
+            <div class="metric-row"><span class="metric-label">Val Loss</span><span class="metric-value" id="m-val-loss">-</span></div>
+            <div class="metric-row"><span class="metric-label">Best Val</span><span class="metric-value" id="m-best-val">{{ "%.4f"|format(job.best_val_loss) if job.best_val_loss else '-' }}</span></div>
+            <div class="metric-row"><span class="metric-label">Learning Rate</span><span class="metric-value" id="m-lr">-</span></div>
+            <div class="metric-row"><span class="metric-label">Tokens/sec</span><span class="metric-value" id="m-tps">-</span></div>
+            <div class="metric-row"><span class="metric-label">Peak Memory</span><span class="metric-value" id="m-mem">-</span></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const JOB_ID = '{{ job_id }}';
+const TOTAL_ITERS = {{ job.total_iters }};
+const IS_REMOTE = {{ 'true' if is_remote else 'false' }};
+const MONITOR_ID = '{{ monitor_id }}';
+const JOB_STATUS = '{{ job.status }}';
+const JOB_MACHINE = '{{ job.machine }}';
+
+// Chart setup
+const ctx = document.getElementById('loss-chart').getContext('2d');
+const chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        datasets: [
+            {
+                label: 'Train Loss',
+                data: [],
+                borderColor: '#c084fc',
+                backgroundColor: 'rgba(192,132,252,0.1)',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                tension: 0.3,
+            },
+            {
+                label: 'Val Loss',
+                data: [],
+                borderColor: '#4ecdc4',
+                backgroundColor: 'rgba(78,205,196,0.1)',
+                borderWidth: 2,
+                pointRadius: 3,
+                tension: 0,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        scales: {
+            x: {
+                type: 'linear',
+                title: { display: true, text: 'Iteration', color: '#a0a0a0' },
+                ticks: { color: '#666' },
+                grid: { color: '#2e2e2e' },
+            },
+            y: {
+                title: { display: true, text: 'Loss', color: '#a0a0a0' },
+                ticks: { color: '#666' },
+                grid: { color: '#2e2e2e' },
+            }
+        },
+        plugins: {
+            legend: { labels: { color: '#a0a0a0' } }
+        }
+    }
+});
+
+// Metric updaters
+function updateMetric(id, value) {
+    const el = document.getElementById(id);
+    if (el && value !== undefined && value !== null) el.textContent = value;
+}
+
+function formatEta(seconds) {
+    if (!seconds || seconds <= 0) return 'done';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (h > 24) return Math.round(h/24) + 'd ' + (h%24) + 'h';
+    if (h > 0) return h + 'h ' + m + 'm';
+    return m + 'm';
+}
+
+// Log viewer
+const logViewer = document.getElementById('log-viewer');
+let autoScroll = true;
+logViewer.addEventListener('scroll', () => {
+    const atBottom = logViewer.scrollHeight - logViewer.scrollTop - logViewer.clientHeight < 50;
+    autoScroll = atBottom;
+});
+
+function appendLog(line, cls) {
+    const div = document.createElement('div');
+    div.className = 'log-line' + (cls ? ' ' + cls : '');
+    div.textContent = line;
+    logViewer.appendChild(div);
+    while (logViewer.children.length > 500) logViewer.removeChild(logViewer.firstChild);
+    if (autoScroll) logViewer.scrollTop = logViewer.scrollHeight;
+}
+
+function handleSSEMessage(data) {
+    if (data.type === 'log') {
+        let cls = '';
+        if (data.line.includes('Train loss') || data.line.includes('Val loss')) cls = 'metric';
+        if (data.line.includes('Saved adapter')) cls = 'save';
+        if (data.line.toLowerCase().includes('error')) cls = 'error';
+        appendLog(data.line, cls);
+    }
+
+    if (data.type === 'metric') {
+        if (data.train_loss !== undefined) {
+            chart.data.datasets[0].data.push({x: data.iter, y: data.train_loss});
+            if (chart.data.datasets[0].data.length > 600) {
+                const d = chart.data.datasets[0].data;
+                const sampled = [];
+                const step = d.length / 500;
+                for (let i = 0; i < 500; i++) sampled.push(d[Math.floor(i * step)]);
+                chart.data.datasets[0].data = sampled;
+            }
+            chart.update('none');
+            updateMetric('m-loss', data.train_loss.toFixed(4));
+            updateMetric('m-iter', data.iter + ' / ' + TOTAL_ITERS);
+            updateMetric('m-lr', data.lr ? data.lr.toExponential(2) : '-');
+            updateMetric('m-tps', data.tokens_per_sec ? data.tokens_per_sec.toFixed(1) : '-');
+            updateMetric('m-mem', data.peak_mem_gb ? data.peak_mem_gb.toFixed(2) + ' GB' : '-');
+
+            const pct = (data.iter / TOTAL_ITERS * 100).toFixed(1);
+            document.getElementById('progress-fill').style.width = pct + '%';
+        }
+        if (data.val_loss !== undefined) {
+            chart.data.datasets[1].data.push({x: data.iter, y: data.val_loss});
+            chart.update('none');
+            updateMetric('m-val-loss', data.val_loss.toFixed(4));
+            if (bestVal === null || data.val_loss < bestVal) {
+                bestVal = data.val_loss;
+                updateMetric('m-best-val', bestVal.toFixed(4));
+            }
+        }
+    }
+
+    if (data.type === 'eta') {
+        updateMetric('m-eta', formatEta(data.seconds));
+    }
+
+    if (data.type === 'done') {
+        const badge = document.getElementById('status-badge');
+        badge.className = 'badge badge-' + (data.exit_code === 0 ? 'completed' : 'failed');
+        badge.textContent = data.exit_code === 0 ? 'completed' : 'failed';
+        const stopBtn = document.getElementById('stop-btn');
+        if (stopBtn) stopBtn.disabled = true;
+        appendLog('--- Training ' + (data.exit_code === 0 ? 'completed' : 'failed (exit ' + data.exit_code + ')') + ' ---', data.exit_code === 0 ? 'save' : 'error');
+        if (evtSource) evtSource.close();
+        // Show retry button
+        showRetryButton();
+    }
+
+    if (data.type === 'error') {
+        appendLog(data.message, 'error');
+        if (evtSource) evtSource.close();
+        showRetryButton();
+    }
+}
+
+function showRetryButton() {
+    const stopBtn = document.getElementById('stop-btn');
+    if (stopBtn) stopBtn.style.display = 'none';
+    let retry = document.getElementById('retry-btn');
+    if (!retry) {
+        retry = document.createElement('button');
+        retry.id = 'retry-btn';
+        retry.className = 'btn btn-primary btn-sm';
+        retry.textContent = 'Retry from Checkpoint';
+        retry.onclick = retryJob;
+        const btnGroup = document.querySelector('.btn-group');
+        if (btnGroup) btnGroup.insertBefore(retry, btnGroup.firstChild);
+    }
+    retry.style.display = '';
+}
+
+// SSE connection — choose endpoint based on local vs remote
+let bestVal = null;
+let evtSource = null;
+
+function connectSSE(monitorId) {
+    if (evtSource) evtSource.close();
+    let url;
+    if (IS_REMOTE && monitorId) {
+        url = '/api/remote/monitor/stream/' + monitorId;
+    } else {
+        url = '/api/train/stream/' + JOB_ID;
+    }
+    evtSource = new EventSource(url);
+    evtSource.onmessage = function(e) {
+        handleSSEMessage(JSON.parse(e.data));
+    };
+    evtSource.onerror = function() {
+        appendLog('--- SSE connection lost ---', 'error');
+    };
+}
+
+if (JOB_STATUS === 'running') {
+    if (IS_REMOTE && !MONITOR_ID) {
+        // No monitor — try to re-attach
+        appendLog('Re-attaching to remote training...', 'metric');
+        fetch('/api/train/reattach/' + JOB_ID, {method: 'POST'})
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.monitor_id) {
+                    appendLog('Monitor re-attached', 'save');
+                    connectSSE(d.monitor_id);
+                } else if (d.status === 'completed') {
+                    appendLog('Training already completed', 'save');
+                    document.getElementById('status-badge').className = 'badge badge-completed';
+                    document.getElementById('status-badge').textContent = 'completed';
+                    showRetryButton();
+                } else {
+                    appendLog('Could not re-attach: ' + (d.error || 'unknown'), 'error');
+                }
+            })
+            .catch(function(err) { appendLog('Re-attach failed: ' + err, 'error'); });
+    } else {
+        connectSSE(MONITOR_ID);
+    }
+}
+
+// Load existing metrics on page load
+if (IS_REMOTE && MONITOR_ID) {
+    // For remote jobs, we don't have a metrics endpoint yet — the SSE will catch up
+} else {
+    fetch('/api/train/metrics/' + JOB_ID)
+        .then(r => r.json())
+        .then(d => {
+            for (const m of d.metrics) {
+                if (m.train_loss !== undefined) {
+                    chart.data.datasets[0].data.push({x: m.iter, y: m.train_loss});
+                }
+                if (m.val_loss !== undefined) {
+                    chart.data.datasets[1].data.push({x: m.iter, y: m.val_loss});
+                }
+            }
+            chart.update('none');
+            if (d.best_val_loss) updateMetric('m-best-val', d.best_val_loss.toFixed(4));
+        });
+}
+
+// For completed/failed jobs, load the remote log if available
+if (JOB_STATUS !== 'running' && IS_REMOTE) {
+    const remoteLog = '{{ job.get("remote_log", "") }}';
+    if (remoteLog) {
+        fetch('/api/remote/log/' + JOB_MACHINE, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({log_path: remoteLog, tail: 200})
+        })
+        .then(r => r.json())
+        .then(d => {
+            for (const line of (d.lines || [])) appendLog(line);
+            for (const m of (d.metrics || [])) {
+                if (m.train_loss !== undefined) {
+                    chart.data.datasets[0].data.push({x: m.iter, y: m.train_loss});
+                }
+                if (m.val_loss !== undefined) {
+                    chart.data.datasets[1].data.push({x: m.iter, y: m.val_loss});
+                }
+            }
+            chart.update('none');
+        });
+    }
+}
+
+function stopJob() {
+    if (!confirm('Stop training?')) return;
+    fetch('/api/train/stop/' + JOB_ID, {method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}'})
+        .then(r => r.json())
+        .then(d => { if (d.ok) showToast('Stop signal sent', 'success'); });
+}
+
+function retryJob() {
+    // Pre-fill the train page with this job's settings + resume from latest checkpoint
+    const params = new URLSearchParams();
+    params.set('machine', JOB_MACHINE);
+    params.set('output_name', '{{ job.output_name or "" }}');
+    params.set('model', '{{ job.model or "" }}');
+    params.set('framework', '{{ job.framework or "mlx_lora" }}');
+    params.set('iters', '{{ job.total_iters }}');
+    params.set('retry_from', JOB_ID);
+    location.href = '/train?' + params.toString();
+}
+</script>
+{% endblock %}

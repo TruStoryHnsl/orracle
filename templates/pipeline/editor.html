@@ -1,0 +1,557 @@
+{% extends "base.html" %}
+{% block title %}Orracle — Pipeline Editor{% endblock %}
+
+{% block head %}
+<style>
+/* Editor-specific layout — full viewport below header */
+body { overflow: hidden; }
+.editor-container {
+    display: flex;
+    height: calc(100vh - 48px);
+    overflow: hidden;
+}
+
+/* Left sidebar — node palette */
+.node-palette {
+    width: 200px;
+    min-width: 200px;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-color);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+.palette-header {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.palette-category {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.5rem;
+}
+.palette-node {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    cursor: grab;
+    border-left: 2px solid transparent;
+    transition: background 0.1s, border-color 0.1s;
+    user-select: none;
+}
+.palette-node:hover {
+    background: var(--bg-tertiary);
+    border-left-color: var(--accent);
+    color: var(--text-primary);
+}
+.palette-node:active { cursor: grabbing; }
+.palette-node .node-desc {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+/* Center — canvas viewport */
+.canvas-viewport {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+    background: var(--bg-primary);
+    background-image: radial-gradient(circle, var(--border-color) 1px, transparent 1px);
+    background-size: 20px 20px;
+    cursor: default;
+}
+.canvas-viewport.panning { cursor: grabbing; }
+.canvas-viewport.space-held { cursor: grab; }
+
+.canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 1px; height: 1px;
+    transform-origin: 0 0;
+}
+
+/* Box selection rubber band */
+.selection-box {
+    position: absolute;
+    border: 1px solid var(--accent);
+    background: rgba(192, 132, 252, 0.08);
+    pointer-events: none;
+    z-index: 40;
+    display: none;
+}
+
+/* SVG connection layer */
+.connections-layer {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    overflow: visible;
+}
+.connections-layer path {
+    pointer-events: stroke;
+    cursor: pointer;
+}
+.connections-layer path.selected {
+    stroke: var(--accent) !important;
+    stroke-width: 3 !important;
+}
+.connections-layer path.temp {
+    stroke: var(--accent);
+    stroke-dasharray: 6 3;
+    opacity: 0.7;
+}
+
+/* Node elements */
+.pipeline-node {
+    position: absolute;
+    min-width: 160px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    user-select: none;
+    cursor: move;
+    z-index: 10;
+    transition: box-shadow 0.15s;
+}
+.pipeline-node:hover { border-color: var(--text-muted); }
+.pipeline-node.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+    z-index: 20;
+}
+.pipeline-node.dragging {
+    opacity: 0.85;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    z-index: 30;
+    transition: none;
+}
+.pipeline-node.disabled { opacity: 0.4; }
+
+.node-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--border-color);
+    border-radius: 6px 6px 0 0;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+.node-header .node-category {
+    font-size: 0.65rem;
+    color: var(--accent);
+    text-transform: uppercase;
+}
+
+.node-ports {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.3rem 0;
+    min-height: 24px;
+}
+.node-inputs, .node-outputs {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.node-outputs { align-items: flex-end; }
+
+.port {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 0.5rem;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    cursor: crosshair;
+}
+.port-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid var(--text-muted);
+    background: var(--bg-primary);
+    transition: border-color 0.1s, background 0.1s, transform 0.1s;
+    flex-shrink: 0;
+}
+.port-dot:hover {
+    border-color: var(--accent);
+    transform: scale(1.3);
+}
+.port-dot.compatible {
+    border-color: var(--success);
+    background: var(--success);
+    animation: pulse 0.8s infinite;
+}
+.port-dot.incompatible { opacity: 0.3; }
+.port-dot.connected { background: var(--accent); border-color: var(--accent); }
+
+/* Port type colors */
+.port-dot[data-type="text"] { border-color: #8bb4e7; }
+.port-dot[data-type="text_batch"] { border-color: #7fc97f; }
+.port-dot[data-type="files"] { border-color: #e6ab6a; }
+.port-dot[data-type="metrics"] { border-color: #d4a0ff; }
+.port-dot[data-type="tokens"] { border-color: #ff9999; }
+.port-dot[data-type="video"] { border-color: #ff6b6b; }
+.port-dot[data-type="frames"] { border-color: #ffd93d; }
+.port-dot[data-type="audio"] { border-color: #6bcfff; }
+
+.node-preview-badge {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-align: center;
+    border-top: 1px solid var(--border-color);
+}
+
+@keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(78, 205, 196, 0.4); }
+    50% { box-shadow: 0 0 0 4px rgba(78, 205, 196, 0); }
+}
+
+/* Right sidebar — config panel */
+.config-panel {
+    width: 320px;
+    min-width: 320px;
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border-color);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+.config-panel.collapsed { width: 0; min-width: 0; overflow: hidden; }
+.config-header {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.config-header h3 { margin: 0; font-size: 0.9rem; }
+.config-body { padding: 0.75rem; flex: 1; }
+
+.config-section {
+    margin-bottom: 1rem;
+}
+.config-section-title {
+    font-size: 0.75rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
+
+/* Preview panel in config sidebar */
+.preview-section {
+    border-top: 1px solid var(--border-color);
+    padding: 0.75rem;
+}
+.preview-sample {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.5rem;
+    font-size: 0.75rem;
+    max-height: 200px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-bottom: 0.5rem;
+}
+.preview-diff-insert { background: rgba(78, 205, 196, 0.15); }
+.preview-diff-delete { background: rgba(255, 107, 107, 0.15); text-decoration: line-through; }
+
+/* Preview diff view */
+.preview-diff-header { margin-bottom: 0.75rem; }
+.preview-source-name {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--accent);
+    margin-bottom: 0.4rem;
+    word-break: break-all;
+}
+.preview-stats-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.3rem;
+}
+.preview-stat {
+    display: flex;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+}
+.preview-stat-label { color: var(--text-muted); }
+.preview-stat-value { color: var(--text-primary); }
+.preview-dist {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-top: 0.2rem;
+}
+
+/* Tabs */
+.preview-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 0.5rem;
+}
+.preview-tab-btn {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.75rem;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.1s, border-color 0.1s;
+    font-family: var(--font-mono);
+}
+.preview-tab-btn:hover { color: var(--text-primary); }
+.preview-tab-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+/* Timeline nodes */
+.tl-node {
+    border-left: 2px solid var(--border-color);
+    margin-left: 0.4rem;
+    padding: 0.25rem 0 0.25rem 0.75rem;
+    position: relative;
+}
+.tl-node.tl-changed { border-left-color: var(--accent); }
+.tl-node:last-child { border-left-color: transparent; }
+
+.tl-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    padding: 0.15rem 0;
+}
+.tl-indicator {
+    font-size: 0.6rem;
+    width: 1em;
+    text-align: center;
+    flex-shrink: 0;
+}
+.tl-changed .tl-indicator { color: var(--accent); }
+.tl-label { color: var(--text-primary); flex: 1; }
+.tl-delta { font-size: 0.7rem; font-family: var(--font-mono); }
+
+/* Expand hint */
+.tl-changed .tl-header::after {
+    content: '\25b8';
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-left: auto;
+    transition: transform 0.15s;
+}
+.tl-expanded .tl-header::after { transform: rotate(90deg); }
+
+/* Diff block */
+.tl-diff {
+    margin: 0.3rem 0 0.25rem 1.2rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    max-height: 250px;
+    overflow-y: auto;
+    font-size: 0.7rem;
+    line-height: 1.55;
+}
+.tl-diff-line {
+    padding: 0 0.4rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: var(--font-mono);
+}
+.tl-diff-insert {
+    background: rgba(78, 205, 196, 0.12);
+    color: var(--success);
+}
+.tl-diff-delete {
+    background: rgba(255, 107, 107, 0.12);
+    color: var(--error);
+}
+.tl-diff-header {
+    color: var(--accent);
+    padding-top: 0.2rem;
+    font-size: 0.65rem;
+}
+.tl-diff-context { color: var(--text-muted); }
+
+/* Full text panels */
+.preview-fulltext {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.5rem;
+    font-size: 0.7rem;
+    line-height: 1.5;
+    max-height: 500px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text-secondary);
+}
+.preview-truncated {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-bottom: 0.3rem;
+    font-style: italic;
+}
+
+/* Pipeline toolbar */
+.canvas-toolbar {
+    position: absolute;
+    top: 0.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 0.25rem;
+    z-index: 50;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.25rem;
+}
+.canvas-toolbar button {
+    padding: 0.25rem 0.6rem;
+    font-size: 0.75rem;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 3px;
+    transition: background 0.1s, color 0.1s;
+}
+.canvas-toolbar button:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+.canvas-toolbar button:active { background: var(--accent-dim); color: white; }
+
+/* Pipeline selector */
+.pipeline-selector {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 50;
+    display: flex;
+    gap: 0.25rem;
+    align-items: center;
+}
+.pipeline-selector select {
+    width: auto;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+}
+
+/* Zoom indicator */
+.zoom-indicator {
+    position: absolute;
+    bottom: 0.5rem;
+    right: 0.5rem;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    z-index: 50;
+    background: var(--bg-secondary);
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    border: 1px solid var(--border-color);
+}
+
+/* Resize handle */
+.sidebar-resize {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    transition: background 0.2s;
+    flex-shrink: 0;
+}
+.sidebar-resize:hover { background: var(--accent-dim); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="editor-container">
+    <!-- Left: Node Palette -->
+    <aside class="node-palette" id="node-palette">
+        <div class="palette-header">
+            <span>Nodes</span>
+            <span class="text-muted" id="node-count"></span>
+        </div>
+        <div id="palette-list"></div>
+    </aside>
+
+    <!-- Center: Canvas -->
+    <div class="canvas-viewport" id="canvas-viewport">
+        <div class="canvas" id="canvas">
+            <svg class="connections-layer" id="connections-svg"></svg>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="canvas-toolbar">
+            <button onclick="editor.fitView()" title="Fit view (F)">Fit</button>
+            <button onclick="editor.zoomTo(1)" title="Reset zoom">100%</button>
+            <button onclick="editor.undo()" title="Undo (Ctrl+Z)">Undo</button>
+            <button onclick="editor.redo()" title="Redo (Ctrl+Shift+Z)">Redo</button>
+            <button onclick="editor.savePipeline()" title="Save (Ctrl+S)">Save</button>
+            <button onclick="editor.runPreview()" title="Preview (P)">Preview</button>
+            <button onclick="editor.runExecute()" title="Run full batch">Run</button>
+        </div>
+
+        <!-- Pipeline selector -->
+        <div class="pipeline-selector">
+            <select id="pipeline-select" onchange="editor.loadPipeline(this.value)">
+                <option value="">-- New Pipeline --</option>
+            </select>
+            <select id="preset-select" onchange="editor.loadPreset(this.value)" style="color:var(--accent)">
+                <option value="">Presets...</option>
+            </select>
+            <button class="btn btn-sm" onclick="editor.newPipeline()">New</button>
+        </div>
+
+        <div class="zoom-indicator" id="zoom-indicator">100%</div>
+        <div class="selection-box" id="selection-box"></div>
+
+        <!-- Shortcut hints (bottom-left) -->
+        <div style="position:absolute;bottom:0.5rem;left:0.5rem;z-index:50;font-size:0.65rem;color:var(--text-muted);line-height:1.6;background:var(--bg-secondary);padding:0.3rem 0.5rem;border-radius:3px;border:1px solid var(--border-color);opacity:0.7">
+            RMB drag: pan &middot; Scroll: zoom &middot; Del: delete &middot; Ctrl+D: duplicate &middot; Esc: deselect &middot; F: fit
+        </div>
+    </div>
+
+    <!-- Right: Config Panel -->
+    <aside class="config-panel" id="config-panel">
+        <div class="config-header">
+            <h3 id="config-title">No Selection</h3>
+            <button class="btn btn-sm" onclick="document.getElementById('config-panel').classList.toggle('collapsed')">X</button>
+        </div>
+        <div class="config-body" id="config-body">
+            <div class="empty-state">
+                <p class="text-muted">Select a node to configure it</p>
+            </div>
+        </div>
+        <div class="preview-section" id="preview-section" style="display:none">
+            <div class="config-section-title">Preview</div>
+            <div id="preview-content"></div>
+        </div>
+    </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='connections.js') }}"></script>
+<script src="{{ url_for('static', filename='nodes.js') }}"></script>
+<script src="{{ url_for('static', filename='preview.js') }}"></script>
+<script src="{{ url_for('static', filename='pipeline.js') }}"></script>
+{% endblock %}

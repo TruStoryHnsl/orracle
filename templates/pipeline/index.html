@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+{% block title %}Orracle — Data Pipeline{% endblock %}
+
+{% block content %}
+<main>
+    <!-- Top bar: source + actions -->
+    <div class="source-bar card">
+        <div class="source-row">
+            <div class="source-input">
+                <label>Source Directory</label>
+                <div class="flex gap-1">
+                    <input type="text" id="source-dir" placeholder="/mnt/vault/read/nifty/gay" value="/mnt/vault/read/nifty/gay">
+                    <button class="btn btn-sm" onclick="app.scanSource()">Scan</button>
+                </div>
+            </div>
+            <div class="source-stats" id="source-stats">
+                <span class="text-muted">No scan yet</span>
+            </div>
+            <div class="source-actions">
+                <button class="btn btn-primary" onclick="app.runPipeline()" id="btn-run" disabled>Run Pipeline</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tab-bar mt-2">
+        <button class="tab active" data-tab="preview" onclick="app.switchTab('preview')">Preview</button>
+        <button class="tab" data-tab="rules" onclick="app.switchTab('rules')">Rules <span class="text-muted" id="rule-count-badge"></span></button>
+        <button class="tab" data-tab="settings" onclick="app.switchTab('settings')">Settings</button>
+        <button class="tab" data-tab="run" onclick="app.switchTab('run')">Run</button>
+        <button class="tab" data-tab="video" onclick="app.switchTab('video')">Video Pipeline</button>
+    </div>
+
+    <!-- Preview tab -->
+    <div class="tab-content active" id="tab-preview">
+        <div class="preview-controls card">
+            <div class="flex justify-between items-center">
+                <div class="flex gap-1 items-center">
+                    <button class="btn btn-sm" onclick="app.previewRandom()">Random Story</button>
+                    <button class="btn btn-sm" onclick="app.previewNext()">Next</button>
+                    <span class="text-muted" id="preview-story-name"></span>
+                </div>
+                <div class="flex gap-1 items-center">
+                    <span class="text-muted" id="preview-stats"></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="preview-panels mt-1">
+            <div class="stage-bar" id="stage-bar">
+                <span class="text-muted">Run a preview to see pipeline stages</span>
+            </div>
+            <div class="preview-split">
+                <div class="preview-pane">
+                    <div class="preview-pane-header">
+                        <span id="before-label">Original</span>
+                        <span class="text-muted" id="before-chars"></span>
+                    </div>
+                    <div class="preview-text" id="preview-before">
+                        <div class="empty-state">Select a story to preview</div>
+                    </div>
+                </div>
+                <div class="preview-pane">
+                    <div class="preview-pane-header">
+                        <span id="after-label">After Pipeline</span>
+                        <span class="text-muted" id="after-chars"></span>
+                    </div>
+                    <div class="preview-text" id="preview-after">
+                        <div class="empty-state">Select a story to preview</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rules tab -->
+    <div class="tab-content" id="tab-rules">
+        <div class="card">
+            <div class="flex justify-between items-center mb-1">
+                <div class="flex gap-1 items-center">
+                    <label style="margin:0">Library</label>
+                    <select id="library-select" onchange="app.loadRuleLibrary(this.value)" style="width:auto">
+                        <option value="">-- Select --</option>
+                    </select>
+                    <span class="text-muted" id="rule-stats"></span>
+                </div>
+                <div class="flex gap-1">
+                    <input type="text" id="rule-search" placeholder="Filter..." oninput="app.filterRules(this.value)" style="width:200px">
+                    <select id="category-filter" onchange="app.filterByCategory(this.value)" style="width:auto">
+                        <option value="">All categories</option>
+                    </select>
+                    <button class="btn btn-sm" onclick="app.saveRules()">Save</button>
+                </div>
+            </div>
+            <div id="rule-list"></div>
+        </div>
+
+        <div class="card mt-1">
+            <h3>Test Pattern</h3>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Regex Pattern</label>
+                    <input type="text" id="test-pattern" placeholder="(?i)pattern.*here">
+                </div>
+                <div class="form-group">
+                    <label>&nbsp;</label>
+                    <button class="btn btn-primary btn-sm" onclick="app.testPattern()">Test</button>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Sample Text</label>
+                <textarea id="test-sample" rows="4" placeholder="Paste sample text..."></textarea>
+            </div>
+            <div id="test-results"></div>
+        </div>
+    </div>
+
+    <!-- Settings tab -->
+    <div class="tab-content" id="tab-settings">
+        <div class="card-grid">
+            <div class="card">
+                <h3>Quality Filters</h3>
+                <div class="form-group"><label>Min characters</label><input type="number" id="cfg-min-chars" value="500"></div>
+                <div class="form-group"><label>Max characters</label><input type="number" id="cfg-max-chars" value="2000000"></div>
+                <div class="form-group"><label>Min words</label><input type="number" id="cfg-min-words" value="50"></div>
+                <div class="form-group"><label>Min sentences</label><input type="number" id="cfg-min-sentences" value="3"></div>
+                <div class="form-group"><label>Max non-ASCII ratio</label><input type="number" id="cfg-max-non-ascii" value="0.20" step="0.01"></div>
+                <div class="form-group"><label>Max avg word length</label><input type="number" id="cfg-max-avg-word" value="15.0" step="0.5"></div>
+            </div>
+            <div class="card">
+                <h3>Output</h3>
+                <div class="form-group"><label>Validation split ratio</label><input type="number" id="cfg-val-ratio" value="0.1" step="0.01"></div>
+                <div class="form-group"><label>Random seed</label><input type="number" id="cfg-seed" value="42"></div>
+                <div class="form-group"><label>Output format</label>
+                    <select id="cfg-format">
+                        <option value="text">{"text": "..."} (continued pretraining)</option>
+                        <option value="prompt">{"prompt": "...", "completion": "..."} (SFT)</option>
+                    </select>
+                </div>
+                <div class="form-group"><label>Chapter separator</label><input type="text" id="cfg-separator" value="\n\n---\n\n"></div>
+            </div>
+            <div class="card">
+                <h3>Performance</h3>
+                <div class="form-group"><label>I/O threads</label><input type="number" id="cfg-io-threads" value="16"></div>
+                <div class="form-group"><label>Batch size</label><input type="number" id="cfg-batch-size" value="200"></div>
+                <div class="form-group"><label>PDF extraction</label>
+                    <select id="cfg-pdf"><option value="false">Disabled</option><option value="true">Enabled</option></select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Run tab -->
+    <div class="tab-content" id="tab-run">
+        <div class="card">
+            <div class="flex justify-between items-center mb-1">
+                <h3>Pipeline Execution</h3>
+                <div class="flex gap-1">
+                    <button class="btn btn-primary" onclick="app.runPipeline()" id="btn-run-2">Run Pipeline</button>
+                    <button class="btn btn-danger btn-sm" onclick="app.stopPipeline()" id="btn-stop" disabled>Stop</button>
+                </div>
+            </div>
+            <div class="progress-bar mb-1"><div class="fill" id="run-progress" style="width:0%"></div></div>
+            <div class="flex justify-between mb-1">
+                <span class="text-muted" id="run-status">Idle</span>
+                <span class="text-muted" id="run-eta"></span>
+            </div>
+            <div class="log-viewer" id="run-log">Waiting for pipeline run...</div>
+        </div>
+        <div class="card mt-1" id="run-results" style="display:none">
+            <h3>Results</h3>
+            <div class="card-grid" id="result-cards"></div>
+        </div>
+    </div>
+    <!-- Video Pipeline tab -->
+    <div class="tab-content" id="tab-video">
+        <div class="card-grid">
+            <div class="card">
+                <h3>Video Pipeline Status</h3>
+                <div class="metric-row"><span class="metric-label">Machine</span><span class="metric-value" id="vp-machine">orrgate</span></div>
+                <div class="metric-row"><span class="metric-label">Service</span><span class="metric-value" id="vp-status">--</span></div>
+                <div class="metric-row"><span class="metric-label">Uptime</span><span class="metric-value" id="vp-uptime">--</span></div>
+                <div class="metric-row"><span class="metric-label">Memory</span><span class="metric-value" id="vp-memory">--</span></div>
+                <div class="btn-group mt-1">
+                    <button class="btn btn-sm" onclick="app.refreshVideoStatus()">Refresh</button>
+                    <button class="btn btn-sm btn-primary" onclick="app.startVideoService()">Start</button>
+                    <button class="btn btn-sm btn-danger" onclick="app.stopVideoService()">Stop</button>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Training Data</h3>
+                <div class="metric-row"><span class="metric-label">Total frames</span><span class="metric-value" id="vp-total-frames">--</span></div>
+                <div class="metric-row"><span class="metric-label">Positive (key moment)</span><span class="metric-value" id="vp-pos-frames">--</span></div>
+                <div class="metric-row"><span class="metric-label">Negative</span><span class="metric-value" id="vp-neg-frames">--</span></div>
+                <div class="metric-row"><span class="metric-label">Clips processed</span><span class="metric-value" id="vp-processed">--</span></div>
+                <div class="metric-row"><span class="metric-label">Clips with key_moment</span><span class="metric-value" id="vp-labeled">--</span></div>
+                <div class="btn-group mt-1">
+                    <button class="btn btn-sm" onclick="app.refreshVideoStats()">Refresh Stats</button>
+                    <button class="btn btn-sm" onclick="app.fetchVideoOutput()">Fetch Output to Local</button>
+                </div>
+            </div>
+        </div>
+        <div class="card mt-1">
+            <div class="flex justify-between items-center mb-1">
+                <h3>Pipeline Log</h3>
+                <button class="btn btn-sm" onclick="app.refreshVideoLog()">Refresh</button>
+            </div>
+            <div class="log-viewer" id="vp-log" style="max-height:500px">Loading...</div>
+        </div>
+    </div>
+
+    <!-- Floating selection action button -->
+    <div id="selection-fab" class="selection-fab" style="display:none">
+        <button class="btn btn-primary btn-sm" onclick="app.openRuleBuilder()">Create Rule from Selection</button>
+    </div>
+
+    <!-- Rule Builder Modal -->
+    <div id="rule-builder" class="modal-overlay" style="display:none">
+        <div class="modal card">
+            <div class="flex justify-between items-center mb-1">
+                <h3>Create Rule from Selection</h3>
+                <button class="btn btn-sm" onclick="app.closeRuleBuilder()">&times; Close</button>
+            </div>
+
+            <!-- Selected text preview -->
+            <div class="form-group">
+                <label>Selected Text</label>
+                <div class="rb-selected-preview" id="rb-selected-text"></div>
+            </div>
+
+            <!-- Pattern suggestions -->
+            <div class="form-group">
+                <label>Suggested Patterns</label>
+                <div id="rb-suggestions"></div>
+            </div>
+
+            <!-- Rule editor -->
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Rule Name</label>
+                    <input type="text" id="rb-name" placeholder="e.g. author_disclaimer">
+                </div>
+                <div class="form-group">
+                    <label>Category</label>
+                    <input type="text" id="rb-category" value="boilerplate" placeholder="e.g. boilerplate">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Action</label>
+                    <select id="rb-action">
+                        <option value="strip_paragraph">Strip Paragraph</option>
+                        <option value="strip_line">Strip Line</option>
+                        <option value="strip_match">Strip Match</option>
+                        <option value="replace">Replace</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" id="rb-description" placeholder="What this rule removes">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Pattern (regex)</label>
+                <input type="text" id="rb-pattern" placeholder="(?i)pattern.*here" style="font-family:var(--font-mono);font-size:0.85rem">
+            </div>
+            <div class="form-group">
+                <label>Replacement (for replace action only)</label>
+                <input type="text" id="rb-replacement" placeholder="Leave empty for strip actions">
+            </div>
+
+            <!-- Test -->
+            <div class="flex gap-1 mb-1">
+                <button class="btn btn-sm" onclick="app.testRuleBuilder()">Test Pattern</button>
+                <button class="btn btn-primary" onclick="app.addRuleFromBuilder()">Add Rule</button>
+            </div>
+            <div id="rb-test-results"></div>
+
+            <!-- Hidden test sample -->
+            <textarea id="rb-test-sample" style="display:none"></textarea>
+        </div>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+{% endblock %}

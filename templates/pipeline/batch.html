@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% block title %}Orracle — Batch Processing{% endblock %}
+
+{% block content %}
+<main>
+    <div class="section-header">
+        <h1>Batch Processing</h1>
+        <div class="btn-group">
+            <button class="btn btn-sm" onclick="batch.refreshTasks()">Refresh</button>
+        </div>
+    </div>
+
+    <!-- Active task monitor -->
+    <div id="active-task" style="display:none">
+        <div class="card mb-2">
+            <div class="flex justify-between items-center mb-1">
+                <h3 id="task-title">Running Pipeline</h3>
+                <span class="badge badge-running" id="task-status">running</span>
+            </div>
+            <div class="progress-bar">
+                <div class="fill" id="task-progress" style="width:0%"></div>
+            </div>
+            <div class="flex justify-between mt-1">
+                <span class="text-muted" id="task-node">Waiting...</span>
+                <span class="text-muted" id="task-percent">0%</span>
+            </div>
+        </div>
+
+        <!-- Node metrics -->
+        <div class="card mb-2">
+            <h3>Node Metrics</h3>
+            <div id="node-metrics"></div>
+        </div>
+
+        <!-- Log viewer -->
+        <div class="card">
+            <div class="flex justify-between items-center mb-1">
+                <h3>Log</h3>
+                <button class="btn btn-sm" id="task-stop-btn" onclick="batch.stopTask()">Stop</button>
+            </div>
+            <div class="log-viewer" id="task-log"></div>
+        </div>
+    </div>
+
+    <!-- Task history -->
+    <div class="card mt-2">
+        <h3>Task History</h3>
+        <div id="task-list"></div>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const batch = {
+    eventSource: null,
+    currentTask: null,
+
+    async init() {
+        // Check URL params for active task
+        const params = new URLSearchParams(window.location.search);
+        const taskId = params.get('task');
+        const pipelineId = params.get('pipeline');
+
+        if (taskId && pipelineId) {
+            this.monitorTask(pipelineId, taskId);
+        }
+
+        this.refreshTasks();
+    },
+
+    monitorTask(pipelineId, taskId) {
+        this.currentTask = taskId;
+        document.getElementById('active-task').style.display = 'block';
+        document.getElementById('task-title').textContent = `Task: ${taskId}`;
+
+        // SSE connection
+        if (this.eventSource) this.eventSource.close();
+        this.eventSource = new EventSource(`/api/pipelines/${pipelineId}/stream/${taskId}`);
+
+        const logEl = document.getElementById('task-log');
+
+        this.eventSource.onmessage = (e) => {
+            const data = JSON.parse(e.data);
+
+            if (data.type === 'log') {
+                const line = document.createElement('div');
+                line.className = 'log-line';
+                if (data.message.includes('ERROR')) line.classList.add('error');
+                if (data.message.includes('completed')) line.classList.add('save');
+                line.textContent = data.message;
+                logEl.appendChild(line);
+                logEl.scrollTop = logEl.scrollHeight;
+            }
+
+            if (data.type === 'progress') {
+                document.getElementById('task-progress').style.width = (data.percent || 0) + '%';
+                document.getElementById('task-percent').textContent = (data.percent || 0) + '%';
+                document.getElementById('task-node').textContent =
+                    `${data.current_node || ''} (${(data.node_index || 0) + 1}/${data.total_nodes || 0})`;
+            }
+
+            if (data.type === 'metrics') {
+                this.renderMetrics(data.nodes);
+            }
+
+            if (data.type === 'done') {
+                const statusEl = document.getElementById('task-status');
+                statusEl.textContent = data.status;
+                statusEl.className = `badge badge-${data.status}`;
+                document.getElementById('task-stop-btn').style.display = 'none';
+
+                if (data.status === 'completed') {
+                    document.getElementById('task-progress').style.width = '100%';
+                    document.getElementById('task-percent').textContent = '100%';
+                }
+                if (data.error) {
+                    const errLine = document.createElement('div');
+                    errLine.className = 'log-line error';
+                    errLine.textContent = data.error;
+                    logEl.appendChild(errLine);
+                }
+
+                this.eventSource.close();
+                this.refreshTasks();
+            }
+        };
+
+        this.eventSource.onerror = () => {
+            this.eventSource.close();
+        };
+    },
+
+    renderMetrics(nodeMetrics) {
+        const container = document.getElementById('node-metrics');
+        container.textContent = '';
+
+        for (const [nodeId, metrics] of Object.entries(nodeMetrics)) {
+            const section = document.createElement('div');
+            section.style.cssText = 'margin-bottom:0.5rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border-color)';
+
+            const header = document.createElement('div');
+            header.style.cssText = 'font-size:0.85rem;color:var(--text-primary);margin-bottom:0.25rem';
+            header.textContent = nodeId;
+            section.appendChild(header);
+
+            for (const [key, val] of Object.entries(metrics)) {
+                if (typeof val === 'object') continue;
+                const row = document.createElement('div');
+                row.className = 'metric-row';
+                const labelSpan = document.createElement('span');
+                labelSpan.className = 'metric-label';
+                labelSpan.textContent = key;
+                const valSpan = document.createElement('span');
+                valSpan.className = 'metric-value';
+                valSpan.textContent = typeof val === 'number' ? val.toLocaleString() : val;
+                row.appendChild(labelSpan);
+                row.appendChild(valSpan);
+                section.appendChild(row);
+            }
+
+            container.appendChild(section);
+        }
+    },
+
+    async stopTask() {
+        if (!this.currentTask) return;
+        const params = new URLSearchParams(window.location.search);
+        const pipelineId = params.get('pipeline');
+        await fetch(`/api/pipelines/${pipelineId}/stop/${this.currentTask}`, { method: 'POST' });
+        showToast('Stop requested', 'info');
+    },
+
+    async refreshTasks() {
+        const resp = await fetch('/api/tasks');
+        const tasks = await resp.json();
+        const container = document.getElementById('task-list');
+        container.textContent = '';
+
+        if (tasks.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'empty-state';
+            const msg = document.createElement('p');
+            msg.textContent = 'No tasks yet';
+            empty.appendChild(msg);
+            container.appendChild(empty);
+            return;
+        }
+
+        const table = document.createElement('table');
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        for (const h of ['Task ID', 'Pipeline', 'Status', 'Started', 'Finished']) {
+            const th = document.createElement('th');
+            th.textContent = h;
+            headerRow.appendChild(th);
+        }
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        for (const task of tasks) {
+            const tr = document.createElement('tr');
+
+            const tdId = document.createElement('td');
+            tdId.textContent = task.id;
+            tdId.style.fontFamily = 'var(--font-mono)';
+            tdId.style.fontSize = '0.8rem';
+            tr.appendChild(tdId);
+
+            const tdPipeline = document.createElement('td');
+            tdPipeline.textContent = task.pipeline_id || '-';
+            tr.appendChild(tdPipeline);
+
+            const tdStatus = document.createElement('td');
+            const badge = document.createElement('span');
+            badge.className = `badge badge-${task.status}`;
+            badge.textContent = task.status;
+            tdStatus.appendChild(badge);
+            tr.appendChild(tdStatus);
+
+            const tdStarted = document.createElement('td');
+            tdStarted.textContent = task.started || '-';
+            tdStarted.className = 'text-muted';
+            tr.appendChild(tdStarted);
+
+            const tdFinished = document.createElement('td');
+            tdFinished.textContent = task.finished || '-';
+            tdFinished.className = 'text-muted';
+            tr.appendChild(tdFinished);
+
+            tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+        container.appendChild(table);
+    },
+};
+
+document.addEventListener('DOMContentLoaded', () => batch.init());
+</script>
+{% endblock %}

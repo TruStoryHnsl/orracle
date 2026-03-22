@@ -1,0 +1,582 @@
+{% extends "base.html" %}
+{% block title %}Export — Orracle Trainer{% endblock %}
+
+{% block content %}
+<h1 class="mb-2">Export &amp; Deploy</h1>
+
+<!-- One-Click Deploy -->
+<div class="card mb-2">
+    <div class="section-header" style="margin-bottom:0.5rem">
+        <h3>Deploy to Ollama</h3>
+    </div>
+    <p class="text-secondary mb-2">Fuse adapter, convert to GGUF, and create Ollama model — all in one step.</p>
+
+    <form onsubmit="startDeploy(event)">
+        <div class="form-row">
+            <div class="form-group">
+                <label>Training Job / Adapter</label>
+                <select id="deploy-adapter">
+                    {% for ra in remote_adapters %}
+                    <option value="{{ ra.adapter_path }}"
+                            data-machine="{{ ra.machine }}"
+                            data-model="{{ ra.model }}">
+                        {{ ra.output_name }} ({{ ra.machine }}, job {{ ra.job_id }})
+                    </option>
+                    {% endfor %}
+                    {% for a in adapters %}
+                    <option value="{{ a.path }}" data-machine="local" data-model="">
+                        {{ a.parent }}/{{ a.name }} (local, {{ a.size_mb }} MB)
+                    </option>
+                    {% endfor %}
+                    {% if not remote_adapters and not adapters %}
+                    <option value="" disabled>No adapters found</option>
+                    {% endif %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Ollama Model Name</label>
+                <input type="text" id="deploy-name" placeholder="orrvert-beta" value="orrvert-beta" required>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Base Model</label>
+                <input type="text" id="deploy-base" placeholder="mlx-community/Mistral-7B-Instruct-v0.3-4bit" value="mlx-community/Mistral-7B-Instruct-v0.3-4bit">
+            </div>
+            <div class="form-group">
+                <label>Chat Template</label>
+                <select id="deploy-template">
+                    {% for key, tmpl in chat_templates.items() %}
+                    <option value="{{ key }}">{{ tmpl.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="collapsible-header" onclick="toggleCollapsible(this)">
+            <span>Advanced Options</span>
+            <span class="arrow">&#9654;</span>
+        </div>
+        <div class="collapsible-body">
+            <div class="form-group">
+                <label>System Prompt</label>
+                <textarea id="deploy-system" rows="2">You are a creative fiction writer specializing in character-driven stories. Write vivid, emotionally resonant prose with natural dialogue and authentic character development.</textarea>
+            </div>
+            <div class="form-row three">
+                <div class="form-group">
+                    <label>Temperature</label>
+                    <input type="number" id="deploy-temp" value="0.8" step="0.05" min="0" max="2">
+                </div>
+                <div class="form-group">
+                    <label>Context Length</label>
+                    <input type="number" id="deploy-ctx" value="4096" min="512" max="32768">
+                </div>
+                <div class="form-group">
+                    <label>Framework</label>
+                    <select id="deploy-framework">
+                        <option value="mlx">MLX-LM</option>
+                        <option value="unsloth">Unsloth</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="btn-group mt-1">
+            <button type="submit" class="btn btn-primary" id="deploy-btn">Deploy Model</button>
+        </div>
+    </form>
+
+    <!-- Deploy progress -->
+    <div id="deploy-progress" style="display:none" class="mt-2">
+        <div class="form-row" style="align-items:center;gap:0.5rem">
+            <span class="badge" id="deploy-stage">starting</span>
+            <span class="text-muted" id="deploy-status-text"></span>
+        </div>
+        <pre class="log-viewer mt-1" id="deploy-log" style="max-height:20vh;font-size:0.75rem"></pre>
+    </div>
+</div>
+
+<!-- Step 1: Fuse LoRA -->
+<div class="card mb-2">
+    <div class="collapsible-header" onclick="toggleCollapsible(this)">
+        <span>1. Fuse LoRA Adapter <span class="text-muted" style="font-size:0.8rem">&mdash; Merge adapter weights into base model</span></span>
+        <span class="arrow">&#9654;</span>
+    </div>
+    <div class="collapsible-body">
+        <form onsubmit="startFuse(event)">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Adapter Path</label>
+                    <select id="fuse-adapter" name="adapter_path">
+                        {% for a in adapters %}
+                        <option value="{{ a.path }}">{{ a.parent }}/{{ a.name }} ({{ a.size_mb }} MB)</option>
+                        {% endfor %}
+                        {% if not adapters %}
+                        <option value="" disabled>No adapters found</option>
+                        {% endif %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Base Model</label>
+                    <input type="text" id="fuse-base" name="base_model" placeholder="mlx-community/Mistral-7B-Instruct-v0.3-4bit" value="mlx-community/Mistral-7B-Instruct-v0.3-4bit">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Output Directory</label>
+                    <input type="text" id="fuse-output" name="output_dir" placeholder="models/merged">
+                </div>
+                <div class="form-group">
+                    <label>Framework</label>
+                    <select id="fuse-framework" name="framework">
+                        <option value="mlx">MLX-LM (Apple Silicon)</option>
+                        <option value="unsloth">Unsloth (CUDA)</option>
+                    </select>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary" {% if not adapters %}disabled{% endif %}>Start Fusion</button>
+        </form>
+    </div>
+</div>
+
+<!-- Step 2: Convert to GGUF -->
+<div class="card mb-2">
+    <div class="collapsible-header" onclick="toggleCollapsible(this)">
+        <span>2. Convert to GGUF <span class="text-muted" style="font-size:0.8rem">&mdash; Quantize for Ollama deployment</span></span>
+        <span class="arrow">&#9654;</span>
+    </div>
+    <div class="collapsible-body">
+        <form onsubmit="startGGUF(event)">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Adapter / Model Path</label>
+                    <select id="gguf-adapter" name="adapter_path">
+                        {% for a in adapters %}
+                        <option value="{{ a.path }}">{{ a.parent }}/{{ a.name }}</option>
+                        {% endfor %}
+                        {% if not adapters %}
+                        <option value="" disabled>No adapters found</option>
+                        {% endif %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Quantization</label>
+                    <select id="gguf-quant" name="quant_type">
+                        <option value="q4_k_m">Q4_K_M (recommended, ~4.3 GB for 7B)</option>
+                        <option value="q5_k_m">Q5_K_M (higher quality, ~5.1 GB for 7B)</option>
+                        <option value="q8_0">Q8_0 (best quality, ~7.7 GB for 7B)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Output Name</label>
+                    <input type="text" id="gguf-name" name="output_name" placeholder="orrvert-7b-q4_k_m" value="orrvert-7b">
+                </div>
+                <div class="form-group">
+                    <label>Framework</label>
+                    <select id="gguf-framework" name="framework">
+                        <option value="unsloth">Unsloth (CUDA)</option>
+                        <option value="mlx">MLX-LM</option>
+                    </select>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary" {% if not adapters %}disabled{% endif %}>Start Conversion</button>
+        </form>
+    </div>
+</div>
+
+<!-- Step 3: Create Ollama Model -->
+<div class="card mb-2">
+    <div class="section-header" style="margin-bottom:0.5rem">
+        <h3>3. Create Ollama Model</h3>
+    </div>
+    <p class="text-secondary mb-2">Create a model in Ollama from a GGUF file with a custom Modelfile.</p>
+
+    <form onsubmit="createOllamaModel(event)">
+        <div class="form-row">
+            <div class="form-group">
+                <label>Model Name</label>
+                <input type="text" id="ollama-name" placeholder="orrvert-7b" value="orrvert-7b" required>
+            </div>
+            <div class="form-group">
+                <label>GGUF File</label>
+                {% if gguf_files %}
+                <select id="ollama-gguf" onchange="updateModelfilePreview()">
+                    {% for g in gguf_files %}
+                    <option value="{{ g.path }}">{{ g.name }} ({{ g.size_gb }} GB)</option>
+                    {% endfor %}
+                </select>
+                {% else %}
+                <input type="text" id="ollama-gguf" placeholder="/path/to/model.gguf">
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>Chat Template</label>
+                <select id="ollama-template" onchange="updateModelfilePreview()">
+                    {% for key, tmpl in chat_templates.items() %}
+                    <option value="{{ key }}">{{ tmpl.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Context Length</label>
+                <input type="number" id="ollama-ctx" value="2048" min="512" max="32768" onchange="updateModelfilePreview()">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>System Prompt</label>
+            <textarea id="ollama-system" rows="3" onchange="updateModelfilePreview()">You are a creative fiction writer specializing in character-driven stories. Write vivid, emotionally resonant prose with natural dialogue and authentic character development.</textarea>
+        </div>
+
+        <div class="collapsible-header" onclick="toggleCollapsible(this)">
+            <span>Generation Parameters</span>
+            <span class="arrow">&#9654;</span>
+        </div>
+        <div class="collapsible-body">
+            <div class="form-row three">
+                <div class="form-group">
+                    <label>Temperature</label>
+                    <input type="number" id="ollama-temp" value="0.8" step="0.05" min="0" max="2" onchange="updateModelfilePreview()">
+                </div>
+                <div class="form-group">
+                    <label>Top P</label>
+                    <input type="number" id="ollama-top-p" value="0.92" step="0.01" min="0" max="1" onchange="updateModelfilePreview()">
+                </div>
+                <div class="form-group">
+                    <label>Top K</label>
+                    <input type="number" id="ollama-top-k" value="50" min="1" max="200" onchange="updateModelfilePreview()">
+                </div>
+            </div>
+            <div class="form-row three">
+                <div class="form-group">
+                    <label>Repeat Penalty</label>
+                    <input type="number" id="ollama-repeat" value="1.1" step="0.05" min="0.5" max="2" onchange="updateModelfilePreview()">
+                </div>
+            </div>
+        </div>
+
+        <div class="form-group mt-2">
+            <label>Modelfile Preview</label>
+            <textarea id="modelfile-preview" rows="12" class="log-viewer" style="white-space:pre;font-size:0.8rem;resize:vertical"></textarea>
+        </div>
+
+        <div class="btn-group mt-1">
+            <button type="submit" class="btn btn-primary" id="create-btn">Create Model</button>
+            <button type="button" class="btn" onclick="updateModelfilePreview()">Refresh Preview</button>
+        </div>
+    </form>
+</div>
+
+<!-- Export Tasks -->
+{% if export_tasks %}
+<div class="card mb-2">
+    <h3 class="mb-1">Export Tasks</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Started</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for t in export_tasks %}
+            <tr>
+                <td class="text-muted">{{ t.id }}</td>
+                <td>{{ t.type }}</td>
+                <td><span class="badge badge-{{ t.status }}">{{ t.status }}</span></td>
+                <td>{{ t.started }}</td>
+                <td><button class="btn btn-sm" onclick="showTaskOutput('{{ t.id }}')">Logs</button></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<!-- Task Output Modal -->
+<div class="modal-overlay" id="task-modal" style="display:none" onclick="if(event.target===this)closeTaskModal()">
+    <div class="modal">
+        <div class="section-header">
+            <h3 id="task-modal-title">Task Output</h3>
+            <button class="btn btn-sm" onclick="closeTaskModal()">Close</button>
+        </div>
+        <pre class="log-viewer" id="task-modal-body" style="max-height:60vh;margin-top:0.5rem"></pre>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleCollapsible(el) {
+    el.classList.toggle('open');
+    el.nextElementSibling.classList.toggle('open');
+}
+
+function updateModelfilePreview() {
+    const gguf = document.getElementById('ollama-gguf').value;
+    const template = document.getElementById('ollama-template').value;
+    const system = document.getElementById('ollama-system').value;
+    const ctx = parseInt(document.getElementById('ollama-ctx').value) || 2048;
+    const temp = parseFloat(document.getElementById('ollama-temp').value) || 0.8;
+    const topP = parseFloat(document.getElementById('ollama-top-p').value) || 0.92;
+    const topK = parseInt(document.getElementById('ollama-top-k').value) || 50;
+    const repeat = parseFloat(document.getElementById('ollama-repeat').value) || 1.1;
+
+    fetch('/api/export/modelfile/preview', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            gguf_path: gguf,
+            template: template,
+            system_prompt: system,
+            params: {temperature: temp, top_p: topP, top_k: topK,
+                     repeat_penalty: repeat, num_ctx: ctx}
+        })
+    })
+    .then(r => r.json())
+    .then(d => {
+        document.getElementById('modelfile-preview').value = d.modelfile;
+    });
+}
+
+function createOllamaModel(e) {
+    e.preventDefault();
+    const btn = document.getElementById('create-btn');
+    const name = document.getElementById('ollama-name').value.trim();
+    const modelfile = document.getElementById('modelfile-preview').value.trim();
+
+    if (!name || !modelfile) {
+        showToast('Name and Modelfile required', 'error');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Creating...';
+
+    fetch('/api/ollama/create', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: name, modelfile: modelfile})
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.ok) {
+            showToast('Model "' + name + '" created!', 'success');
+            setTimeout(() => location.href = '/models', 1000);
+        } else {
+            showToast('Failed: ' + (d.stderr || 'unknown error'), 'error', 5000);
+        }
+        btn.disabled = false;
+        btn.textContent = 'Create Model';
+    })
+    .catch(err => {
+        showToast('Error: ' + err, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Create Model';
+    });
+}
+
+function startFuse(e) {
+    e.preventDefault();
+    const data = {
+        adapter_path: document.getElementById('fuse-adapter').value,
+        base_model: document.getElementById('fuse-base').value,
+        output_dir: document.getElementById('fuse-output').value,
+        framework: document.getElementById('fuse-framework').value,
+    };
+    fetch('/api/export/fuse', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.task_id) {
+            showToast('Fusion started (task: ' + d.task_id + ')', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showToast('Failed: ' + (d.error || 'unknown'), 'error');
+        }
+    })
+    .catch(err => showToast('Error: ' + err, 'error'));
+}
+
+function startGGUF(e) {
+    e.preventDefault();
+    const data = {
+        adapter_path: document.getElementById('gguf-adapter').value,
+        output_name: document.getElementById('gguf-name').value,
+        quant_type: document.getElementById('gguf-quant').value,
+        framework: document.getElementById('gguf-framework').value,
+    };
+    fetch('/api/export/gguf', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.task_id) {
+            showToast('GGUF conversion started (task: ' + d.task_id + ')', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showToast('Failed: ' + (d.error || 'unknown'), 'error');
+        }
+    })
+    .catch(err => showToast('Error: ' + err, 'error'));
+}
+
+function showTaskOutput(taskId) {
+    document.getElementById('task-modal-title').textContent = 'Task: ' + taskId;
+    document.getElementById('task-modal-body').textContent = 'Loading...';
+    document.getElementById('task-modal').style.display = 'flex';
+
+    fetch('/api/export/task/' + taskId)
+        .then(r => r.json())
+        .then(d => {
+            const output = (d.output || []).join('\n') || 'No output yet';
+            document.getElementById('task-modal-body').textContent =
+                'Status: ' + d.status + '\nStarted: ' + d.started + '\n\n' + output;
+        })
+        .catch(e => {
+            document.getElementById('task-modal-body').textContent = 'Error: ' + e;
+        });
+}
+
+function closeTaskModal() {
+    document.getElementById('task-modal').style.display = 'none';
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeTaskModal();
+});
+
+// --- Deploy pipeline ---
+let _deployPollId = null;
+
+function startDeploy(e) {
+    e.preventDefault();
+    const sel = document.getElementById('deploy-adapter');
+    const opt = sel.options[sel.selectedIndex];
+    const adapter = sel.value;
+    const machine = opt?.dataset.machine || 'local';
+    const baseModel = document.getElementById('deploy-base').value.trim();
+    const modelName = document.getElementById('deploy-name').value.trim();
+
+    if (!adapter || !baseModel || !modelName) {
+        showToast('All fields required', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('deploy-btn');
+    btn.disabled = true;
+    btn.textContent = 'Deploying...';
+
+    const data = {
+        adapter_path: adapter,
+        base_model: baseModel,
+        model_name: modelName,
+        machine: machine,
+        framework: document.getElementById('deploy-framework').value,
+        template: document.getElementById('deploy-template').value,
+        system_prompt: document.getElementById('deploy-system').value,
+        params: {
+            temperature: parseFloat(document.getElementById('deploy-temp').value) || 0.8,
+            num_ctx: parseInt(document.getElementById('deploy-ctx').value) || 4096,
+        },
+    };
+
+    fetch('/api/export/deploy', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.task_id) {
+            showToast('Deploy started', 'success');
+            document.getElementById('deploy-progress').style.display = 'block';
+            _deployPollId = setInterval(() => pollDeploy(d.task_id), 2000);
+        } else {
+            showToast('Failed: ' + (d.error || 'unknown'), 'error');
+            btn.disabled = false;
+            btn.textContent = 'Deploy Model';
+        }
+    })
+    .catch(err => {
+        showToast('Error: ' + err, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Deploy Model';
+    });
+}
+
+function pollDeploy(taskId) {
+    fetch('/api/export/task/' + taskId)
+        .then(r => r.json())
+        .then(d => {
+            const stageEl = document.getElementById('deploy-stage');
+            const logEl = document.getElementById('deploy-log');
+            const statusEl = document.getElementById('deploy-status-text');
+
+            stageEl.textContent = d.stage || d.status;
+            stageEl.className = 'badge badge-' + d.status;
+            logEl.textContent = (d.output || []).join('\n');
+            logEl.scrollTop = logEl.scrollHeight;
+
+            if (d.status === 'completed') {
+                clearInterval(_deployPollId);
+                statusEl.textContent = 'Model deployed!';
+                showToast('Model "' + d.model_name + '" deployed! Go to Generate to use it.', 'success', 5000);
+                document.getElementById('deploy-btn').disabled = false;
+                document.getElementById('deploy-btn').textContent = 'Deploy Model';
+            } else if (d.status === 'failed') {
+                clearInterval(_deployPollId);
+                statusEl.textContent = 'Deploy failed.';
+                showToast('Deploy failed — check logs', 'error', 5000);
+                document.getElementById('deploy-btn').disabled = false;
+                document.getElementById('deploy-btn').textContent = 'Deploy Model';
+            }
+        });
+}
+
+// Auto-fill base model from selected adapter
+document.getElementById('deploy-adapter')?.addEventListener('change', function() {
+    const opt = this.options[this.selectedIndex];
+    const model = opt?.dataset.model;
+    if (model) document.getElementById('deploy-base').value = model;
+});
+
+// Init modelfile preview on load
+updateModelfilePreview();
+
+// Pre-fill from URL params (linked from models page)
+const params = new URLSearchParams(location.search);
+if (params.get('gguf')) {
+    const sel = document.getElementById('ollama-gguf');
+    if (sel.tagName === 'SELECT') {
+        for (const opt of sel.options) {
+            if (opt.value === params.get('gguf')) { opt.selected = true; break; }
+        }
+    } else {
+        sel.value = params.get('gguf');
+    }
+    updateModelfilePreview();
+    // Scroll to step 3
+    document.querySelector('form[onsubmit="createOllamaModel(event)"]').scrollIntoView({behavior: 'smooth'});
+}
+if (params.get('adapter')) {
+    const sel = document.getElementById('fuse-adapter');
+    for (const opt of sel.options) {
+        if (opt.value === params.get('adapter')) { opt.selected = true; break; }
+    }
+}
+</script>
+{% endblock %}

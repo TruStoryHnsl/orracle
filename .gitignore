@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+.env
+output/
+config/pipelines/
+config/projects/
+config/job_*.yaml
+*.pt
+models/

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Orracle Trainer{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='base.css') }}?v={{ config.get('CSS_VERSION', '') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <header>
+        <nav>
+            <a href="/" class="logo">orracle trainer</a>
+            <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')">&#9776;</button>
+            <div class="nav-links">
+                <a href="/" {% if request.path == '/' %}class="active"{% endif %}>dashboard</a>
+                <a href="/intake" {% if request.path == '/intake' %}class="active"{% endif %}>data</a>
+                <a href="/train" {% if request.path == '/train' %}class="active"{% endif %}>train</a>
+                <a href="/models" {% if request.path == '/models' %}class="active"{% endif %}>models</a>
+                <a href="/export" {% if request.path == '/export' %}class="active"{% endif %}>export</a>
+                <a href="/compare" {% if request.path == '/compare' %}class="active"{% endif %}>compare</a>
+                <a href="/machines" {% if request.path == '/machines' %}class="active"{% endif %}>machines</a>
+                <a href="/pipeline" {% if request.path == '/pipeline' %}class="active"{% endif %}>pipeline</a>
+                <a href="/forge" {% if request.path == '/forge' %}class="active"{% endif %}>forge</a>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <div class="toast-container" id="toast-container"></div>
+
+    <script>
+    function showToast(msg, type='info', duration=3000) {
+        const c = document.getElementById('toast-container');
+        const t = document.createElement('div');
+        t.className = 'toast ' + type;
+        t.textContent = msg;
+        c.appendChild(t);
+        setTimeout(() => t.remove(), duration);
+    }
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

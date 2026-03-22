@@ -1,0 +1,382 @@
+{% extends "base.html" %}
+{% block title %}Generate — Orracle Trainer{% endblock %}
+
+{% block head %}
+<style>
+.gen-layout {
+    display: grid;
+    grid-template-columns: 1fr 260px;
+    gap: 1rem;
+    height: calc(100vh - 140px);
+}
+.chat-area {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px 6px 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.msg {
+    max-width: 85%;
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+.msg-user {
+    align-self: flex-end;
+    background: var(--accent-dim);
+    color: #fff;
+    border-bottom-right-radius: 2px;
+}
+.msg-assistant {
+    align-self: flex-start;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-bottom-left-radius: 2px;
+}
+.msg-system {
+    align-self: center;
+    background: none;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    padding: 0.25rem;
+}
+.msg-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+}
+.chat-input-row {
+    display: flex;
+    gap: 0;
+}
+.chat-input-row textarea {
+    flex: 1;
+    border-radius: 0 0 0 6px;
+    border-top: none;
+    resize: none;
+    min-height: 60px;
+    max-height: 150px;
+    padding: 0.75rem;
+}
+.chat-input-row button {
+    border-radius: 0 0 6px 0;
+    border-top: none;
+    border-left: none;
+    padding: 0 1.25rem;
+    white-space: nowrap;
+}
+.gen-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    overflow-y: auto;
+}
+.gen-sidebar .card { padding: 1rem; }
+.gen-sidebar label { font-size: 0.8rem; }
+.gen-sidebar input, .gen-sidebar select, .gen-sidebar textarea {
+    font-size: 0.85rem;
+    padding: 0.4rem 0.5rem;
+}
+.gen-stats {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    padding: 0.25rem 0;
+}
+.streaming-indicator {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: pulse 1s infinite;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+@media (max-width: 768px) {
+    .gen-layout { grid-template-columns: 1fr; height: auto; }
+    .chat-messages { min-height: 300px; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="gen-layout">
+    <!-- Chat area -->
+    <div class="chat-area">
+        <div class="chat-messages" id="chat-messages">
+            <div class="msg msg-system">Select a model and start chatting.</div>
+        </div>
+        <div class="chat-input-row">
+            <textarea id="chat-input" placeholder="Type a message..." onkeydown="handleKey(event)" {% if not ollama_available %}disabled{% endif %}></textarea>
+            <button class="btn btn-primary" id="send-btn" onclick="sendMessage()" {% if not ollama_available %}disabled{% endif %}>Send</button>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="gen-sidebar">
+        <div class="card">
+            <div class="form-group" style="margin-bottom:0.5rem">
+                <label>Model</label>
+                <select id="gen-model">
+                    {% for m in models %}
+                    <option value="{{ m.name }}">{{ m.name }} ({{ m.params }}, {{ m.quant }})</option>
+                    {% endfor %}
+                    {% if not models %}
+                    <option value="" disabled>No models available</option>
+                    {% endif %}
+                </select>
+            </div>
+            {% if not ollama_available %}
+            <div class="text-error" style="font-size:0.8rem">Ollama not reachable at localhost:11434</div>
+            {% endif %}
+        </div>
+
+        <div class="card">
+            <label style="margin-bottom:0.5rem;display:block;color:var(--text-secondary)">System Prompt</label>
+            <textarea id="gen-system" rows="3" style="font-size:0.8rem">You are a helpful assistant.</textarea>
+        </div>
+
+        <div class="card">
+            <label style="margin-bottom:0.5rem;display:block;color:var(--text-secondary)">Parameters</label>
+            <div class="form-group">
+                <label>Temperature <span id="temp-val" class="text-accent">0.8</span></label>
+                <input type="range" id="gen-temp" min="0" max="2" step="0.05" value="0.8" oninput="document.getElementById('temp-val').textContent=this.value">
+            </div>
+            <div class="form-group">
+                <label>Top P <span id="topp-val" class="text-accent">0.9</span></label>
+                <input type="range" id="gen-topp" min="0" max="1" step="0.01" value="0.9" oninput="document.getElementById('topp-val').textContent=this.value">
+            </div>
+            <div class="form-group">
+                <label>Top K</label>
+                <input type="number" id="gen-topk" value="40" min="1" max="200">
+            </div>
+            <div class="form-group">
+                <label>Repeat Penalty</label>
+                <input type="number" id="gen-repeat" value="1.1" step="0.05" min="0.5" max="2">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+                <label>Context Length</label>
+                <input type="number" id="gen-ctx" value="4096" min="512" max="32768" step="512">
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="btn-group" style="flex-wrap:wrap">
+                <button class="btn btn-sm" onclick="clearChat()">Clear</button>
+                <button class="btn btn-sm btn-danger" id="stop-gen-btn" onclick="stopGeneration()" disabled>Stop</button>
+            </div>
+            <div class="gen-stats" id="gen-stats"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let conversation = [];
+let currentController = null;
+let isStreaming = false;
+
+const messagesEl = document.getElementById('chat-messages');
+const inputEl = document.getElementById('chat-input');
+const sendBtn = document.getElementById('send-btn');
+const stopBtn = document.getElementById('stop-gen-btn');
+
+function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
+}
+
+function getOptions() {
+    return {
+        temperature: parseFloat(document.getElementById('gen-temp').value),
+        top_p: parseFloat(document.getElementById('gen-topp').value),
+        top_k: parseInt(document.getElementById('gen-topk').value),
+        repeat_penalty: parseFloat(document.getElementById('gen-repeat').value),
+        num_ctx: parseInt(document.getElementById('gen-ctx').value),
+    };
+}
+
+function createMsgEl(role, content) {
+    const div = document.createElement('div');
+    div.className = 'msg msg-' + role;
+    const label = document.createElement('div');
+    label.className = 'msg-label';
+    label.textContent = role;
+    div.appendChild(label);
+    const text = document.createElement('div');
+    text.textContent = content;
+    div.appendChild(text);
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return text;
+}
+
+function sendMessage() {
+    const text = inputEl.value.trim();
+    if (!text || isStreaming) return;
+
+    const model = document.getElementById('gen-model').value;
+    if (!model) { showToast('Select a model', 'error'); return; }
+
+    // Add user message
+    createMsgEl('user', text);
+    conversation.push({role: 'user', content: text});
+    inputEl.value = '';
+    inputEl.style.height = 'auto';
+
+    // Build messages with system prompt
+    const sysPrompt = document.getElementById('gen-system').value.trim();
+    const messages = [];
+    if (sysPrompt) messages.push({role: 'system', content: sysPrompt});
+    messages.push(...conversation);
+
+    // Create assistant message placeholder
+    const assistantText = createMsgEl('assistant', '');
+    const indicator = document.createElement('span');
+    indicator.className = 'streaming-indicator';
+    assistantText.appendChild(indicator);
+
+    // Start streaming
+    isStreaming = true;
+    sendBtn.disabled = true;
+    stopBtn.disabled = false;
+    let fullResponse = '';
+
+    currentController = new AbortController();
+
+    fetch('/api/generate/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({model, messages, options: getOptions()}),
+        signal: currentController.signal,
+    }).then(response => {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        function read() {
+            reader.read().then(({done, value}) => {
+                if (done) {
+                    finishStream();
+                    return;
+                }
+                buffer += decoder.decode(value, {stream: true});
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    try {
+                        const data = JSON.parse(line.slice(6));
+                        if (data.type === 'token') {
+                            fullResponse += data.content;
+                            assistantText.textContent = fullResponse;
+                            const ind = document.createElement('span');
+                            ind.className = 'streaming-indicator';
+                            assistantText.appendChild(ind);
+                            messagesEl.scrollTop = messagesEl.scrollHeight;
+                        } else if (data.type === 'stats') {
+                            showStats(data);
+                        } else if (data.type === 'done') {
+                            finishStream();
+                            return;
+                        } else if (data.type === 'error') {
+                            assistantText.textContent = 'Error: ' + data.message;
+                            assistantText.style.color = 'var(--error)';
+                            finishStream();
+                            return;
+                        }
+                    } catch(e) {}
+                }
+                read();
+            }).catch(e => {
+                if (e.name !== 'AbortError') {
+                    assistantText.textContent = fullResponse || 'Connection lost';
+                }
+                finishStream();
+            });
+        }
+        read();
+    }).catch(e => {
+        if (e.name !== 'AbortError') {
+            assistantText.textContent = 'Error: ' + e.message;
+            assistantText.style.color = 'var(--error)';
+        }
+        finishStream();
+    });
+
+    function finishStream() {
+        isStreaming = false;
+        sendBtn.disabled = false;
+        stopBtn.disabled = true;
+        currentController = null;
+        const ind = assistantText.querySelector('.streaming-indicator');
+        if (ind) ind.remove();
+        if (fullResponse) {
+            assistantText.textContent = fullResponse;
+            conversation.push({role: 'assistant', content: fullResponse});
+        }
+    }
+}
+
+function stopGeneration() {
+    if (currentController) {
+        currentController.abort();
+    }
+}
+
+function showStats(stats) {
+    const el = document.getElementById('gen-stats');
+    const parts = [];
+    if (stats.eval_count && stats.eval_duration) {
+        const tps = stats.eval_count / (stats.eval_duration / 1e9);
+        parts.push(tps.toFixed(1) + ' tok/s');
+    }
+    if (stats.eval_count) {
+        parts.push(stats.eval_count + ' tokens');
+    }
+    if (stats.total_duration) {
+        parts.push((stats.total_duration / 1e9).toFixed(1) + 's total');
+    }
+    if (parts.length) el.textContent = parts.join(' \u00b7 ');
+}
+
+function clearChat() {
+    conversation = [];
+    while (messagesEl.firstChild) messagesEl.removeChild(messagesEl.firstChild);
+    const info = document.createElement('div');
+    info.className = 'msg msg-system';
+    info.textContent = 'Conversation cleared.';
+    messagesEl.appendChild(info);
+    document.getElementById('gen-stats').textContent = '';
+}
+
+// Auto-resize textarea
+inputEl.addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+});
+
+inputEl.focus();
+</script>
+{% endblock %}

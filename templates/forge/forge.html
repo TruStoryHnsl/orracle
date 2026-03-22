@@ -1,0 +1,1377 @@
+{% extends "base.html" %}
+{% block title %}LoRA Forge — Orracle Trainer{% endblock %}
+
+{% block head %}
+<style>
+/* Forge page */
+.forge-status {
+    display: flex; align-items: center; gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+.forge-status .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--success);
+}
+.forge-status .dot.offline { background: var(--error); }
+
+/* Layout: sidebar + main */
+.forge-layout {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 1rem;
+    min-height: 60vh;
+}
+@media (max-width: 768px) {
+    .forge-layout { grid-template-columns: 1fr; }
+}
+
+/* Sidebar */
+.forge-sidebar {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 1rem;
+}
+.forge-sidebar h3 { font-size: 0.9rem; margin-bottom: 0.75rem; }
+
+/* Project selector */
+.project-select { margin-bottom: 1rem; }
+.project-select select { width: 100%; }
+.project-actions {
+    display: flex; gap: 0.5rem; margin-top: 0.5rem;
+}
+.project-actions button { flex: 1; font-size: 0.75rem; padding: 0.3rem; }
+
+/* Tree view */
+.tree-view { font-size: 0.8rem; }
+.tree-node {
+    padding: 0.3rem 0.4rem;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background 0.15s;
+    margin-bottom: 0.15rem;
+}
+.tree-node:hover { background: var(--bg-tertiary); }
+.tree-node.active { background: var(--accent-dim); color: #fff; }
+.tree-node .node-name { font-weight: 500; }
+.tree-node .node-info {
+    font-size: 0.7rem; color: var(--text-muted);
+    display: block; margin-top: 0.1rem;
+}
+.tree-children { margin-left: 1rem; border-left: 1px solid var(--border-color); padding-left: 0.5rem; }
+.tree-node .bake-badge {
+    font-size: 0.65rem; padding: 0.1rem 0.3rem; border-radius: 3px;
+    background: var(--warning); color: #000; margin-left: 0.3rem;
+}
+.tree-node .bake-badge.done { background: var(--success); }
+
+/* Main panel */
+.forge-main {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 1.5rem;
+}
+
+/* Controls bar */
+.controls-bar {
+    display: flex; align-items: center; gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+.tier-tabs {
+    display: flex; gap: 0.25rem;
+}
+.tier-tab {
+    padding: 0.35rem 0.8rem; border-radius: 4px;
+    background: var(--bg-tertiary); color: var(--text-secondary);
+    cursor: pointer; border: 1px solid transparent;
+    font-size: 0.8rem; transition: all 0.15s;
+}
+.tier-tab:hover { color: var(--text-primary); }
+.tier-tab.active {
+    background: var(--accent-dim); color: #fff;
+    border-color: var(--accent);
+}
+
+/* Config form */
+.config-section { margin-bottom: 1.5rem; }
+.config-section h3 { margin-bottom: 0.75rem; }
+
+.lora-picker { max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px; }
+.lora-item {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer; transition: background 0.15s;
+}
+.lora-item:hover { background: var(--bg-tertiary); }
+.lora-item:last-child { border-bottom: none; }
+.lora-item input[type="checkbox"] { accent-color: var(--accent); }
+.lora-item label { cursor: pointer; flex: 1; font-size: 0.85rem; word-break: break-all; }
+
+.params-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.5rem;
+}
+.params-grid .form-group { margin-bottom: 0; }
+
+.collapsible-header {
+    cursor: pointer; display: flex; align-items: center; gap: 0.5rem;
+    color: var(--text-secondary); font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+}
+.collapsible-header::before { content: '\25B8'; transition: transform 0.2s; }
+.collapsible-header.open::before { transform: rotate(90deg); }
+.collapsible-body { display: none; }
+.collapsible-body.open { display: block; }
+
+/* Candidate grid */
+.candidate-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.75rem;
+    margin: 1rem 0;
+}
+.candidate-card {
+    background: var(--bg-primary);
+    border: 2px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    position: relative;
+}
+.candidate-card img {
+    width: 100%; display: block;
+    background: var(--bg-tertiary);
+    min-height: 150px;
+}
+
+/* Ternary controls */
+.candidate-controls {
+    display: flex; gap: 0; border-top: 1px solid var(--border-color);
+}
+.ternary-btn {
+    flex: 1; padding: 0.4rem; text-align: center;
+    font-size: 0.75rem; font-weight: 700;
+    cursor: pointer; border: none;
+    background: var(--bg-tertiary); color: var(--text-muted);
+    transition: all 0.15s;
+}
+.ternary-btn:hover { color: var(--text-primary); }
+.ternary-btn.keep { border-bottom: 3px solid transparent; }
+.ternary-btn.keep.active { background: rgba(78, 205, 196, 0.15); color: var(--success); border-bottom-color: var(--success); }
+.ternary-btn.trash { border-bottom: 3px solid transparent; }
+.ternary-btn.trash.active { background: rgba(255, 107, 107, 0.15); color: var(--error); border-bottom-color: var(--error); }
+.ternary-btn.neutral { border-bottom: 3px solid transparent; }
+.ternary-btn.neutral.active { background: rgba(160, 160, 160, 0.1); color: var(--text-secondary); border-bottom-color: var(--text-muted); }
+
+/* Card states */
+.candidate-card.labeled-keep { border-color: var(--success); box-shadow: 0 0 8px rgba(78, 205, 196, 0.2); }
+.candidate-card.labeled-trash { border-color: var(--error); box-shadow: 0 0 8px rgba(255, 107, 107, 0.2); opacity: 0.7; }
+
+.candidate-card .card-weights {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.75rem; color: var(--text-secondary);
+}
+.candidate-card .weight-tag {
+    display: inline-block;
+    background: var(--bg-tertiary);
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px; margin: 0.1rem;
+    font-size: 0.7rem;
+}
+
+/* Region display */
+.region-display {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.75rem;
+    margin: 0.75rem 0;
+    font-size: 0.8rem;
+}
+.region-display .region-label { color: var(--text-muted); margin-bottom: 0.3rem; }
+.region-bar {
+    display: flex; align-items: center; gap: 0.5rem;
+    margin-bottom: 0.3rem;
+}
+.region-bar .bar-label { width: 45px; color: var(--text-secondary); font-size: 0.75rem; }
+.region-bar .bar-track {
+    flex: 1; height: 8px; background: var(--bg-tertiary);
+    border-radius: 4px; position: relative; overflow: hidden;
+}
+.region-bar .bar-fill {
+    position: absolute; height: 100%;
+    background: var(--accent); border-radius: 4px;
+    transition: left 0.3s, width 0.3s;
+}
+.region-bar .bar-val { width: 80px; font-size: 0.7rem; color: var(--text-muted); text-align: right; }
+
+/* Action bar */
+.action-bar {
+    display: flex; gap: 0.5rem; margin-top: 1rem;
+    padding-top: 1rem; border-top: 1px solid var(--border-color);
+    flex-wrap: wrap;
+}
+
+/* Promote dialog */
+.promote-dialog {
+    background: var(--bg-primary);
+    border: 1px solid var(--accent-dim);
+    border-radius: 6px;
+    padding: 1rem;
+    margin-top: 1rem;
+}
+.promote-dialog h3 { color: var(--accent); }
+.promote-inputs {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 0.5rem; margin: 0.75rem 0;
+}
+
+/* Tournament view */
+.tournament-pairs {
+    display: flex; flex-direction: column; gap: 1rem;
+}
+.tournament-pair {
+    display: grid; grid-template-columns: 1fr auto 1fr;
+    gap: 0.5rem; align-items: start;
+}
+.tournament-pair .vs {
+    align-self: center; font-weight: 700;
+    color: var(--text-muted); font-size: 1.2rem;
+    padding: 0 0.5rem;
+}
+.tournament-side {
+    border: 2px solid var(--border-color);
+    border-radius: 6px; overflow: hidden;
+    cursor: pointer; transition: border-color 0.2s;
+}
+.tournament-side:hover { border-color: var(--text-muted); }
+.tournament-side.winner { border-color: var(--success); }
+.tournament-side img { width: 100%; display: block; }
+.tournament-side .side-label {
+    padding: 0.3rem 0.5rem; font-size: 0.75rem;
+    color: var(--text-secondary); text-align: center;
+}
+
+/* Spinner */
+.spinner {
+    display: inline-block; width: 16px; height: 16px;
+    border: 2px solid var(--text-muted);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Image modal */
+.img-modal {
+    display: none; position: fixed; inset: 0; z-index: 100;
+    background: rgba(0,0,0,0.85);
+    align-items: center; justify-content: center;
+    cursor: pointer;
+}
+.img-modal.active { display: flex; }
+.img-modal img { max-width: 90vw; max-height: 90vh; border-radius: 4px; }
+
+/* Status indicators */
+.gen-status { font-size: 0.8rem; color: var(--text-secondary); margin: 0.5rem 0; }
+
+/* Swipe hint */
+.candidate-card { transition: transform 0.2s, opacity 0.2s, border-color 0.2s, box-shadow 0.2s; touch-action: pan-y; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>LoRA Forge</h1>
+
+<div class="forge-status">
+    <span class="dot {% if not comfyui_available %}offline{% endif %}"></span>
+    <span>ComfyUI {{ 'connected' if comfyui_available else 'offline' }} — {{ comfyui_url }}</span>
+</div>
+
+{% if not comfyui_available %}
+<div class="card" style="border-color: var(--error);">
+    <p>ComfyUI is not reachable at <strong>{{ comfyui_url }}</strong>.</p>
+    <p style="color: var(--text-secondary);">Make sure ComfyUI is running. Default: <code>http://localhost:8188</code></p>
+</div>
+{% endif %}
+
+<!-- New Project Dialog (hidden by default) -->
+<div id="new-project-dialog" style="display:none;">
+    <div class="card">
+        <h2>New Forge Project</h2>
+        <div class="config-section">
+            <div class="form-group">
+                <label for="new-project-name">Project Name</label>
+                <input type="text" id="new-project-name" class="form-control" placeholder="My LoRA experiment">
+            </div>
+            <div class="form-group">
+                <label for="new-checkpoint">Base Checkpoint</label>
+                <select id="new-checkpoint" class="form-control">
+                    {% for ckpt in checkpoints %}
+                    <option value="{{ ckpt }}">{{ ckpt }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="config-section">
+            <h3>Select LoRAs <span style="color:var(--text-muted); font-size:0.8rem;">({{ loras|length }} available)</span></h3>
+            <div class="lora-picker" id="lora-picker">
+                {% for lora in loras %}
+                <div class="lora-item">
+                    <input type="checkbox" id="lora_{{ loop.index }}" value="{{ lora }}">
+                    <label for="lora_{{ loop.index }}">{{ lora }}</label>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="config-section">
+            <div class="form-group">
+                <label for="new-prompt">Default Prompt</label>
+                <textarea id="new-prompt" class="form-control" rows="3" placeholder="Test prompt for all passes..."></textarea>
+            </div>
+            <div class="form-group">
+                <label for="new-neg-prompt">Negative Prompt</label>
+                <textarea id="new-neg-prompt" class="form-control" rows="2" placeholder="worst quality, blurry, deformed"></textarea>
+            </div>
+        </div>
+
+        <div class="config-section">
+            <div class="collapsible-header" onclick="toggleCollapsible(this)">Generation Parameters</div>
+            <div class="collapsible-body">
+                <div class="params-grid">
+                    <div class="form-group">
+                        <label>CFG</label>
+                        <input type="number" id="new-cfg" class="form-control" value="7" min="1" max="30" step="0.5">
+                    </div>
+                    <div class="form-group">
+                        <label>Sampler</label>
+                        <select id="new-sampler" class="form-control">
+                            {% for s in samplers %}
+                            <option value="{{ s }}" {% if s == 'euler' %}selected{% endif %}>{{ s }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Scheduler</label>
+                        <select id="new-scheduler" class="form-control">
+                            {% for s in schedulers %}
+                            <option value="{{ s }}" {% if s == 'normal' %}selected{% endif %}>{{ s }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Seed</label>
+                        <input type="number" id="new-seed" class="form-control" value="" placeholder="Random">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div style="display:flex; gap:0.5rem;">
+            <button class="btn btn-primary" onclick="createProject()">Create Project</button>
+            <button class="btn" onclick="showNewProjectDialog(false)">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Main forge interface -->
+<div id="forge-workspace" style="{% if not comfyui_available %}display:none;{% endif %}">
+    <div class="forge-layout">
+        <!-- Sidebar: project tree -->
+        <div class="forge-sidebar">
+            <div class="project-select">
+                <h3>Project</h3>
+                <select id="project-select" class="form-control" onchange="loadProject(this.value)">
+                    <option value="">Select project...</option>
+                    {% for p in projects %}
+                    <option value="{{ p.id }}">{{ p.name or p.id }}</option>
+                    {% endfor %}
+                </select>
+                <div class="project-actions">
+                    <button class="btn btn-sm btn-primary" onclick="showNewProjectDialog(true)">New</button>
+                    <button class="btn btn-sm" id="btn-delete-project" onclick="deleteProject()" disabled>Delete</button>
+                </div>
+            </div>
+
+            <div id="tree-container">
+                <h3>Tree</h3>
+                <div id="tree-view" class="tree-view">
+                    <span style="color:var(--text-muted); font-size:0.8rem;">No project loaded</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main panel -->
+        <div class="forge-main">
+            <!-- No project state -->
+            <div id="state-empty">
+                <p style="color: var(--text-muted);">Select or create a project to begin.</p>
+            </div>
+
+            <!-- Project loaded: idle state -->
+            <div id="state-idle" style="display:none;">
+                <div class="controls-bar">
+                    <div class="tier-tabs">
+                        <button class="tier-tab active" data-tier="sweep" onclick="selectTier(this)">Sweep</button>
+                        <button class="tier-tab" data-tier="refine" onclick="selectTier(this)">Refine</button>
+                        <button class="tier-tab" data-tier="polish" onclick="selectTier(this)">Polish</button>
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <select id="lora-focus" class="form-control" style="font-size:0.8rem; padding:0.3rem;">
+                        </select>
+                    </div>
+                    <button class="btn btn-sm btn-primary" id="btn-generate" onclick="generatePass()">Generate Pass</button>
+                </div>
+
+                <!-- Weight region display -->
+                <div id="region-display" class="region-display" style="display:none;"></div>
+
+                <!-- Pass history -->
+                <div id="pass-history"></div>
+            </div>
+
+            <!-- Generating state -->
+            <div id="state-generating" style="display:none;">
+                <div class="gen-status" id="gen-status"></div>
+                <div class="candidate-grid" id="gen-grid"></div>
+            </div>
+
+            <!-- Labeling state -->
+            <div id="state-labeling" style="display:none;">
+                <div class="gen-status">
+                    Label each image: <strong style="color:var(--success);">Keep</strong>,
+                    <strong style="color:var(--error);">Trash</strong>, or
+                    <strong style="color:var(--text-secondary);">Neutral</strong>
+                </div>
+
+                <div id="region-display-labeling" class="region-display" style="display:none;"></div>
+
+                <div class="candidate-grid" id="label-grid"></div>
+
+                <div class="action-bar">
+                    <button class="btn btn-primary" id="btn-submit-labels" onclick="submitLabels()">Submit Feedback</button>
+                    <button class="btn" onclick="showPromoteDialog()">Promote LoRA</button>
+                    <button class="btn" onclick="showBranchDialog()">Fork Branch</button>
+                    <button class="btn" id="btn-download-history" onclick="downloadHistory()" style="margin-left:auto;">Download CSV</button>
+                </div>
+
+                <!-- Promote dialog (inline, toggled) -->
+                <div id="promote-dialog" class="promote-dialog" style="display:none;">
+                    <h3>Promote LoRA to Checkpoint</h3>
+                    <p style="font-size:0.8rem; color:var(--text-secondary);">
+                        Bake the focused LoRA into the base checkpoint, creating a new branch.
+                    </p>
+                    <div class="promote-inputs">
+                        <div class="form-group">
+                            <label>Model Weight</label>
+                            <input type="number" id="promote-model-w" class="form-control" value="0.5" min="0" max="1.5" step="0.05">
+                        </div>
+                        <div class="form-group">
+                            <label>Clip Weight</label>
+                            <input type="number" id="promote-clip-w" class="form-control" value="0.5" min="0" max="1.5" step="0.05">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Branch Name</label>
+                        <input type="text" id="promote-branch" class="form-control" placeholder="branch_name">
+                    </div>
+                    <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
+                        <button class="btn btn-primary" onclick="promoteLora()">Bake & Branch</button>
+                        <button class="btn" onclick="hideDialogs()">Cancel</button>
+                    </div>
+                </div>
+
+                <!-- Branch dialog (inline, toggled) -->
+                <div id="branch-dialog" class="promote-dialog" style="display:none;">
+                    <h3>Fork Branch</h3>
+                    <p style="font-size:0.8rem; color:var(--text-secondary);">
+                        Create a parallel development path from the current node.
+                    </p>
+                    <div class="form-group">
+                        <label>Branch Name</label>
+                        <input type="text" id="fork-branch-name" class="form-control" placeholder="branch_name">
+                    </div>
+                    <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
+                        <button class="btn btn-primary" onclick="forkBranch()">Create Branch</button>
+                        <button class="btn" onclick="hideDialogs()">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tournament state -->
+            <div id="state-tournament" style="display:none;">
+                <h3>Tournament</h3>
+                <div id="tournament-content"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Image modal -->
+<div class="img-modal" id="img-modal" onclick="this.classList.remove('active')">
+    <img id="img-modal-src" src="">
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// State
+let currentProject = null;
+let currentTier = 'sweep';
+let currentPassNum = null;
+let candidateLabels = {};
+const comfyuiUrl = '{{ comfyui_url }}';
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+function toggleCollapsible(el) {
+    el.classList.toggle('open');
+    el.nextElementSibling.classList.toggle('open');
+}
+
+function openModal(src) {
+    document.getElementById('img-modal-src').src = src;
+    document.getElementById('img-modal').classList.add('active');
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') document.getElementById('img-modal').classList.remove('active');
+});
+
+function showState(state) {
+    ['state-empty', 'state-idle', 'state-generating', 'state-labeling', 'state-tournament'].forEach(id => {
+        document.getElementById(id).style.display = 'none';
+    });
+    document.getElementById('state-' + state).style.display = '';
+}
+
+function hideDialogs() {
+    document.getElementById('promote-dialog').style.display = 'none';
+    document.getElementById('branch-dialog').style.display = 'none';
+}
+
+function selectTier(el) {
+    document.querySelectorAll('.tier-tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    currentTier = el.dataset.tier;
+}
+
+function makeEl(tag, className, text) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (text != null) el.textContent = text;
+    return el;
+}
+
+// ---------------------------------------------------------------------------
+// Project CRUD
+// ---------------------------------------------------------------------------
+
+function showNewProjectDialog(show) {
+    document.getElementById('new-project-dialog').style.display = show ? '' : 'none';
+    if (show) document.getElementById('forge-workspace').style.display = 'none';
+    else document.getElementById('forge-workspace').style.display = '';
+}
+
+async function createProject() {
+    const name = document.getElementById('new-project-name').value.trim();
+    const checkpoint = document.getElementById('new-checkpoint').value;
+    const checks = document.querySelectorAll('#lora-picker input:checked');
+    const loras = Array.from(checks).map(c => c.value);
+
+    if (!name) { showToast('Enter a project name', 'error'); return; }
+    if (!loras.length) { showToast('Select at least one LoRA', 'error'); return; }
+
+    const defaults = {
+        prompt: document.getElementById('new-prompt').value.trim(),
+        negative_prompt: document.getElementById('new-neg-prompt').value.trim(),
+        cfg: parseFloat(document.getElementById('new-cfg').value) || 7,
+        sampler: document.getElementById('new-sampler').value,
+        scheduler: document.getElementById('new-scheduler').value,
+        seed: parseInt(document.getElementById('new-seed').value) || null,
+    };
+
+    try {
+        const resp = await fetch('/api/forge/projects', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ name, checkpoint, loras, defaults }),
+        });
+        const data = await resp.json();
+        if (data.error) { showToast(data.error, 'error'); return; }
+
+        showToast('Project created', 'success');
+        showNewProjectDialog(false);
+
+        const sel = document.getElementById('project-select');
+        const opt = document.createElement('option');
+        opt.value = data.id;
+        opt.textContent = name;
+        sel.appendChild(opt);
+        sel.value = data.id;
+        loadProject(data.id);
+    } catch(e) {
+        showToast('Failed to create project', 'error');
+    }
+}
+
+async function loadProject(projectId) {
+    if (!projectId) {
+        currentProject = null;
+        showState('empty');
+        document.getElementById('btn-delete-project').disabled = true;
+        renderTree(null);
+        return;
+    }
+
+    try {
+        const resp = await fetch('/api/forge/project/' + projectId);
+        const data = await resp.json();
+        if (data.error) { showToast(data.error, 'error'); return; }
+
+        currentProject = data;
+        document.getElementById('btn-delete-project').disabled = false;
+        renderTree(data);
+        populateLoraFocus(data);
+        updateRegionDisplay(data);
+
+        const passes = data.passes || [];
+        const activePasses = passes.filter(p => p.status === 'generating');
+        if (activePasses.length > 0) {
+            const activePass = activePasses[activePasses.length - 1];
+            currentPassNum = activePass.pass_num;
+            showState('generating');
+            pollPass(projectId, activePass.pass_num);
+        } else {
+            const labelingPasses = passes.filter(p => p.status === 'labeling');
+            if (labelingPasses.length > 0) {
+                const lp = labelingPasses[labelingPasses.length - 1];
+                currentPassNum = lp.pass_num;
+                showLabelingState(lp);
+            } else {
+                showState('idle');
+            }
+        }
+    } catch(e) {
+        showToast('Failed to load project', 'error');
+    }
+}
+
+async function deleteProject() {
+    if (!currentProject) return;
+    if (!confirm('Delete project "' + (currentProject.name || currentProject.id) + '"?')) return;
+
+    try {
+        const resp = await fetch('/api/forge/project/' + currentProject.id, { method: 'DELETE' });
+        const data = await resp.json();
+        if (data.ok) {
+            showToast('Project deleted', 'success');
+            const sel = document.getElementById('project-select');
+            for (const opt of sel.options) {
+                if (opt.value === currentProject.id) { opt.remove(); break; }
+            }
+            sel.value = '';
+            loadProject('');
+        }
+    } catch(e) {
+        showToast('Failed to delete project', 'error');
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tree rendering
+// ---------------------------------------------------------------------------
+
+function renderTree(project) {
+    const container = document.getElementById('tree-view');
+    container.textContent = '';
+
+    if (!project || !project.tree) {
+        container.appendChild(makeEl('span', null, 'No project loaded'));
+        container.firstChild.style.cssText = 'color:var(--text-muted); font-size:0.8rem;';
+        return;
+    }
+
+    const tree = project.tree_summary || {};
+    if (!tree.path) return;
+
+    function buildNode(node) {
+        const div = document.createElement('div');
+
+        const nodeEl = makeEl('div', 'tree-node' + (node.path === project.current_node ? ' active' : ''));
+        nodeEl.onclick = () => navigateNode(node.path);
+
+        const name = makeEl('span', 'node-name', node.path.split('.').pop());
+        nodeEl.appendChild(name);
+
+        if (node.promoted_lora) {
+            const badge = makeEl('span', 'bake-badge', 'baked');
+            nodeEl.appendChild(badge);
+        }
+
+        const ckptShort = (node.checkpoint || '').replace('.safetensors', '').substring(0, 20);
+        const info = makeEl('span', 'node-info', ckptShort + ' (' + (node.lora_count || 0) + ' LoRAs)');
+        nodeEl.appendChild(info);
+
+        div.appendChild(nodeEl);
+
+        if (node.children && Object.keys(node.children).length > 0) {
+            const childContainer = makeEl('div', 'tree-children');
+            for (const [cname, child] of Object.entries(node.children)) {
+                childContainer.appendChild(buildNode(child));
+            }
+            div.appendChild(childContainer);
+        }
+
+        return div;
+    }
+
+    container.appendChild(buildNode(tree));
+}
+
+async function navigateNode(path) {
+    if (!currentProject) return;
+    try {
+        await fetch('/api/forge/project/' + currentProject.id + '/navigate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ path }),
+        });
+        await loadProject(currentProject.id);
+    } catch(e) {
+        showToast('Navigation failed', 'error');
+    }
+}
+
+function populateLoraFocus(project) {
+    const sel = document.getElementById('lora-focus');
+    sel.textContent = '';
+
+    const node = getNodeFromProject(project, project.current_node);
+    if (!node) return;
+
+    for (const lora of (node.active_loras || [])) {
+        const opt = document.createElement('option');
+        opt.value = lora.name;
+        opt.textContent = lora.name.replace('.safetensors', '').substring(0, 30);
+        sel.appendChild(opt);
+    }
+}
+
+function getNodeFromProject(project, path) {
+    const parts = path.split('.');
+    let node = project.tree.root;
+    if (!node) return null;
+    for (const part of parts.slice(1)) {
+        node = (node.children || {})[part];
+        if (!node) return null;
+    }
+    return node;
+}
+
+// ---------------------------------------------------------------------------
+// Weight region display (using safe DOM methods)
+// ---------------------------------------------------------------------------
+
+function updateRegionDisplay(project) {
+    const container = document.getElementById('region-display');
+    const containerLabeling = document.getElementById('region-display-labeling');
+
+    const focusSel = document.getElementById('lora-focus');
+    const loraFocus = focusSel ? focusSel.value : '';
+
+    if (!project || !loraFocus) {
+        container.style.display = 'none';
+        if (containerLabeling) containerLabeling.style.display = 'none';
+        return;
+    }
+
+    const nodePath = project.current_node;
+    const regions = (project.weight_regions || {})[nodePath] || {};
+    const region = regions[loraFocus];
+
+    if (!region) {
+        container.style.display = 'none';
+        if (containerLabeling) containerLabeling.style.display = 'none';
+        return;
+    }
+
+    buildRegionDOM(container, region, loraFocus);
+    container.style.display = '';
+    if (containerLabeling) {
+        buildRegionDOM(containerLabeling, region, loraFocus);
+        containerLabeling.style.display = '';
+    }
+}
+
+function buildRegionDOM(container, region, loraName) {
+    container.textContent = '';
+    const short = loraName.replace('.safetensors', '').substring(0, 25);
+    const maxW = 1.2;
+
+    const label = makeEl('div', 'region-label', short + ' \u2014 Search Region');
+    container.appendChild(label);
+
+    // Model bar
+    container.appendChild(buildBarRow('Model', region.model_min, region.model_max, maxW));
+    // Clip bar
+    container.appendChild(buildBarRow('Clip', region.clip_min, region.clip_max, maxW));
+
+    const scoreInfo = makeEl('div', null, (region.scores || []).length + ' scored samples');
+    scoreInfo.style.cssText = 'font-size:0.7rem; color:var(--text-muted); margin-top:0.3rem;';
+    container.appendChild(scoreInfo);
+}
+
+function buildBarRow(labelText, min, max, maxW) {
+    const row = makeEl('div', 'region-bar');
+
+    const barLabel = makeEl('span', 'bar-label', labelText);
+    row.appendChild(barLabel);
+
+    const track = makeEl('div', 'bar-track');
+    const fill = makeEl('div', 'bar-fill');
+    fill.style.left = (min / maxW * 100) + '%';
+    fill.style.width = ((max - min) / maxW * 100) + '%';
+    track.appendChild(fill);
+    row.appendChild(track);
+
+    const val = makeEl('span', 'bar-val', min.toFixed(2) + ' \u2013 ' + max.toFixed(2));
+    row.appendChild(val);
+
+    return row;
+}
+
+// ---------------------------------------------------------------------------
+// Pass generation
+// ---------------------------------------------------------------------------
+
+async function generatePass() {
+    if (!currentProject) return;
+
+    const loraFocus = document.getElementById('lora-focus').value;
+    if (!loraFocus) { showToast('Select a LoRA to focus on', 'error'); return; }
+
+    document.getElementById('btn-generate').disabled = true;
+
+    try {
+        const resp = await fetch('/api/forge/project/' + currentProject.id + '/pass', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ tier: currentTier, lora_focus: loraFocus }),
+        });
+        const data = await resp.json();
+        if (data.error) { showToast(data.error, 'error'); document.getElementById('btn-generate').disabled = false; return; }
+
+        currentPassNum = data.pass_num;
+        showState('generating');
+        pollPass(currentProject.id, data.pass_num);
+    } catch(e) {
+        showToast('Failed to start pass', 'error');
+        document.getElementById('btn-generate').disabled = false;
+    }
+}
+
+async function pollPass(projectId, passNum) {
+    const poll = async () => {
+        try {
+            const resp = await fetch('/api/forge/project/' + projectId + '/pass/' + passNum);
+            const data = await resp.json();
+            if (data.error) { setTimeout(poll, 3000); return; }
+
+            renderGenGrid(data.candidates || []);
+
+            const done = (data.candidates || []).filter(c => c.status === 'done').length;
+            const total = (data.candidates || []).length;
+            const statusEl = document.getElementById('gen-status');
+
+            if (data.status === 'labeling') {
+                await loadProject(projectId);
+                return;
+            }
+
+            statusEl.textContent = '';
+            const sp = document.createElement('span');
+            sp.className = 'spinner';
+            statusEl.appendChild(sp);
+            statusEl.appendChild(document.createTextNode(' Generating ' + done + '/' + total + ' candidates...'));
+            setTimeout(poll, 2000);
+        } catch(e) {
+            setTimeout(poll, 3000);
+        }
+    };
+    poll();
+}
+
+function renderGenGrid(candidates) {
+    const grid = document.getElementById('gen-grid');
+    grid.textContent = '';
+
+    for (const c of candidates) {
+        const card = makeEl('div', 'candidate-card');
+
+        if (c.status === 'done' && c.image_filename) {
+            const img = document.createElement('img');
+            img.src = '/api/forge/image/' + currentProject.id + '/' + currentPassNum + '/' + c.id;
+            img.loading = 'lazy';
+            img.onclick = e => { e.stopPropagation(); openModal(img.src); };
+            card.appendChild(img);
+        } else {
+            const ph = makeEl('div');
+            ph.style.cssText = 'min-height:150px; display:flex; align-items:center; justify-content:center;';
+            if (c.status === 'generating') {
+                const sp = makeEl('span', 'spinner');
+                sp.style.cssText = 'width:24px;height:24px;border-width:3px;';
+                ph.appendChild(sp);
+            } else if (c.status === 'failed') {
+                ph.style.color = 'var(--error)';
+                ph.textContent = 'Failed';
+            } else {
+                ph.style.color = 'var(--text-muted)';
+                ph.textContent = 'Queued';
+            }
+            card.appendChild(ph);
+        }
+
+        const weights = makeEl('div', 'card-weights');
+        const mTag = makeEl('span', 'weight-tag', 'M: ' + c.model_w.toFixed(2));
+        const cTag = makeEl('span', 'weight-tag', 'C: ' + c.clip_w.toFixed(2));
+        weights.appendChild(mTag);
+        weights.appendChild(document.createTextNode(' '));
+        weights.appendChild(cTag);
+        card.appendChild(weights);
+
+        grid.appendChild(card);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Labeling state
+// ---------------------------------------------------------------------------
+
+function showLabelingState(passData) {
+    candidateLabels = {};
+    showState('labeling');
+    renderLabelGrid(passData.candidates || []);
+    updateRegionDisplay(currentProject);
+
+    const region = getCurrentRegion();
+    if (region) {
+        const keeps = (region.scores || []).filter(s => s.label === 'keep');
+        if (keeps.length) {
+            const last = keeps[keeps.length - 1];
+            document.getElementById('promote-model-w').value = last.model_w;
+            document.getElementById('promote-clip-w').value = last.clip_w;
+        }
+    }
+}
+
+function getCurrentRegion() {
+    if (!currentProject) return null;
+    const focusSel = document.getElementById('lora-focus');
+    const loraFocus = focusSel ? focusSel.value : '';
+    if (!loraFocus) return null;
+    const regions = (currentProject.weight_regions || {})[currentProject.current_node] || {};
+    return regions[loraFocus] || null;
+}
+
+function renderLabelGrid(candidates) {
+    const grid = document.getElementById('label-grid');
+    grid.textContent = '';
+
+    for (const c of candidates) {
+        if (c.status !== 'done') continue;
+
+        const card = makeEl('div', 'candidate-card');
+        card.id = 'card-' + c.id;
+
+        const img = document.createElement('img');
+        img.src = '/api/forge/image/' + currentProject.id + '/' + currentPassNum + '/' + c.id;
+        img.loading = 'lazy';
+        img.onclick = e => { e.stopPropagation(); openModal(img.src); };
+        card.appendChild(img);
+
+        const weights = makeEl('div', 'card-weights');
+        weights.appendChild(makeEl('span', 'weight-tag', 'M: ' + c.model_w.toFixed(2)));
+        weights.appendChild(document.createTextNode(' '));
+        weights.appendChild(makeEl('span', 'weight-tag', 'C: ' + c.clip_w.toFixed(2)));
+        card.appendChild(weights);
+
+        // Ternary controls
+        const controls = makeEl('div', 'candidate-controls');
+
+        const keepBtn = makeEl('button', 'ternary-btn keep', 'Keep');
+        keepBtn.onclick = () => setLabel(c.id, 'keep');
+
+        const trashBtn = makeEl('button', 'ternary-btn trash', 'Trash');
+        trashBtn.onclick = () => setLabel(c.id, 'trash');
+
+        const neutralBtn = makeEl('button', 'ternary-btn neutral', 'Neutral');
+        neutralBtn.onclick = () => setLabel(c.id, null);
+
+        controls.appendChild(keepBtn);
+        controls.appendChild(trashBtn);
+        controls.appendChild(neutralBtn);
+        card.appendChild(controls);
+
+        // Swipe gesture support (touch: swipe right=keep, left=trash)
+        addSwipeListener(card, c.id);
+
+        if (c.label) {
+            candidateLabels[c.id] = c.label;
+            applyLabelUI(card, c.label);
+        }
+
+        grid.appendChild(card);
+    }
+}
+
+function addSwipeListener(card, candidateId) {
+    let startX = 0;
+    let startY = 0;
+    let swiping = false;
+
+    card.addEventListener('touchstart', e => {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        swiping = true;
+    }, {passive: true});
+
+    card.addEventListener('touchmove', e => {
+        if (!swiping) return;
+        const dx = e.touches[0].clientX - startX;
+        const dy = e.touches[0].clientY - startY;
+        // Only swipe horizontally (ignore vertical scrolls)
+        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 30) {
+            card.style.transform = 'translateX(' + (dx * 0.3) + 'px)';
+            card.style.opacity = Math.max(0.5, 1 - Math.abs(dx) / 400);
+        }
+    }, {passive: true});
+
+    card.addEventListener('touchend', e => {
+        if (!swiping) return;
+        swiping = false;
+        const dx = e.changedTouches[0].clientX - startX;
+
+        card.style.transform = '';
+        card.style.opacity = '';
+
+        if (Math.abs(dx) > 60) {
+            if (dx > 0) {
+                setLabel(candidateId, 'keep');
+                showToast('Keep', 'success');
+            } else {
+                setLabel(candidateId, 'trash');
+                showToast('Trash', 'error');
+            }
+        }
+    }, {passive: true});
+}
+
+function setLabel(candidateId, label) {
+    if (label === null) {
+        delete candidateLabels[candidateId];
+    } else {
+        candidateLabels[candidateId] = label;
+    }
+
+    const card = document.getElementById('card-' + candidateId);
+    if (card) applyLabelUI(card, label);
+}
+
+function applyLabelUI(card, label) {
+    card.classList.remove('labeled-keep', 'labeled-trash');
+    card.querySelectorAll('.ternary-btn').forEach(b => b.classList.remove('active'));
+
+    if (label === 'keep') {
+        card.classList.add('labeled-keep');
+        card.querySelector('.ternary-btn.keep').classList.add('active');
+    } else if (label === 'trash') {
+        card.classList.add('labeled-trash');
+        card.querySelector('.ternary-btn.trash').classList.add('active');
+    } else {
+        card.querySelector('.ternary-btn.neutral').classList.add('active');
+    }
+}
+
+async function submitLabels() {
+    if (!currentProject || !currentPassNum) return;
+
+    try {
+        const resp = await fetch('/api/forge/project/' + currentProject.id + '/pass/' + currentPassNum + '/feedback', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ labels: candidateLabels }),
+        });
+        const data = await resp.json();
+        if (data.error) { showToast(data.error, 'error'); return; }
+
+        showToast('Feedback applied', 'success');
+        candidateLabels = {};
+        hideDialogs();
+        await loadProject(currentProject.id);
+    } catch(e) {
+        showToast('Failed to submit feedback', 'error');
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Promote & Branch
+// ---------------------------------------------------------------------------
+
+function showPromoteDialog() {
+    hideDialogs();
+    document.getElementById('promote-dialog').style.display = '';
+}
+
+function showBranchDialog() {
+    hideDialogs();
+    document.getElementById('branch-dialog').style.display = '';
+}
+
+async function promoteLora() {
+    if (!currentProject) return;
+    const loraFocus = document.getElementById('lora-focus').value;
+    if (!loraFocus) { showToast('No LoRA focused', 'error'); return; }
+
+    const modelW = parseFloat(document.getElementById('promote-model-w').value) || 0.5;
+    const clipW = parseFloat(document.getElementById('promote-clip-w').value) || 0.5;
+    const branch = document.getElementById('promote-branch').value.trim();
+
+    if (!branch) { showToast('Enter a branch name', 'error'); return; }
+
+    if (Object.keys(candidateLabels).length > 0) {
+        await submitLabels();
+    }
+
+    try {
+        const resp = await fetch('/api/forge/project/' + currentProject.id + '/promote', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                lora_name: loraFocus,
+                model_weight: modelW,
+                clip_weight: clipW,
+                branch_name: branch,
+            }),
+        });
+        const data = await resp.json();
+        if (data.error) { showToast(data.error, 'error'); return; }
+
+        showToast('LoRA bake started \u2014 new branch: ' + branch, 'success');
+        hideDialogs();
+        await loadProject(currentProject.id);
+    } catch(e) {
+        showToast('Promotion failed', 'error');
+    }
+}
+
+async function forkBranch() {
+    if (!currentProject) return;
+    const name = document.getElementById('fork-branch-name').value.trim();
+    if (!name) { showToast('Enter a branch name', 'error'); return; }
+
+    try {
+        const resp = await fetch('/api/forge/project/' + currentProject.id + '/branch', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ name }),
+        });
+        const data = await resp.json();
+        if (data.error) { showToast(data.error, 'error'); return; }
+
+        showToast('Branch created: ' + name, 'success');
+        hideDialogs();
+        await loadProject(currentProject.id);
+    } catch(e) {
+        showToast('Fork failed', 'error');
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tournament
+// ---------------------------------------------------------------------------
+
+async function startTournament(branchA, branchB) {
+    if (!currentProject) return;
+
+    try {
+        const resp = await fetch('/api/forge/project/' + currentProject.id + '/tournament', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ branch_a: branchA, branch_b: branchB }),
+        });
+        const data = await resp.json();
+        if (data.error) { showToast(data.error, 'error'); return; }
+
+        showToast('Tournament started', 'success');
+        showState('tournament');
+        pollTournament(currentProject.id, data.tournament_id);
+    } catch(e) {
+        showToast('Tournament start failed', 'error');
+    }
+}
+
+async function pollTournament(projectId, tournamentId) {
+    const poll = async () => {
+        try {
+            const resp = await fetch('/api/forge/project/' + projectId);
+            const project = await resp.json();
+            currentProject = project;
+
+            const tournament = (project.tournaments || []).find(t => t.id === tournamentId);
+            if (!tournament) { setTimeout(poll, 3000); return; }
+
+            renderTournament(tournament);
+
+            if (tournament.status === 'generating') {
+                setTimeout(poll, 2000);
+            }
+        } catch(e) {
+            setTimeout(poll, 3000);
+        }
+    };
+    poll();
+}
+
+function renderTournament(tournament) {
+    const container = document.getElementById('tournament-content');
+    container.textContent = '';
+
+    const labelA = tournament.branch_a.split('.').pop();
+    const labelB = tournament.branch_b.split('.').pop();
+
+    const heading = makeEl('div', null, labelA + ' vs ' + labelB);
+    heading.style.cssText = 'margin-bottom:1rem; font-size:0.85rem; color:var(--text-secondary);';
+
+    if (tournament.verdict) {
+        const v = tournament.verdict;
+        const result = makeEl('strong');
+        result.style.color = 'var(--accent)';
+        result.textContent = ' \u2014 ' + (v.winner === 'tie' ? 'Tie' : v.branch.split('.').pop() + ' wins') + ' (' + v.score + ')';
+        heading.appendChild(result);
+    }
+    container.appendChild(heading);
+
+    const pairs = makeEl('div', 'tournament-pairs');
+
+    for (let i = 0; i < tournament.pairs.length; i++) {
+        const pair = tournament.pairs[i];
+        const pairEl = makeEl('div', 'tournament-pair');
+
+        for (const side of ['a', 'b']) {
+            const sideEl = makeEl('div', 'tournament-side' + (pair.winner === side ? ' winner' : ''));
+
+            if (pair[side].status === 'done' && pair[side].image_filename) {
+                const img = document.createElement('img');
+                img.src = '/api/forge/tournament-image/' + currentProject.id + '/' + tournament.id + '/' + i + '/' + side;
+                img.loading = 'lazy';
+                img.onclick = e => { e.stopPropagation(); openModal(img.src); };
+                sideEl.appendChild(img);
+            } else {
+                const ph = makeEl('div');
+                ph.style.cssText = 'min-height:200px; display:flex; align-items:center; justify-content:center;';
+                if (pair[side].status === 'generating') {
+                    const sp = makeEl('span', 'spinner');
+                    sp.style.cssText = 'width:24px;height:24px;';
+                    ph.appendChild(sp);
+                } else {
+                    ph.style.color = pair[side].status === 'failed' ? 'var(--error)' : 'var(--text-muted)';
+                    ph.textContent = pair[side].status === 'failed' ? 'Failed' : 'Queued';
+                }
+                sideEl.appendChild(ph);
+            }
+
+            const sideLabel = makeEl('div', 'side-label', side === 'a' ? labelA : labelB);
+            sideEl.appendChild(sideLabel);
+
+            if (tournament.status === 'voting') {
+                sideEl.onclick = () => voteTournamentPair(tournament.id, i, side);
+                sideEl.style.cursor = 'pointer';
+            }
+
+            pairEl.appendChild(sideEl);
+
+            if (side === 'a') {
+                pairEl.appendChild(makeEl('div', 'vs', 'vs'));
+            }
+        }
+
+        pairs.appendChild(pairEl);
+    }
+    container.appendChild(pairs);
+
+    if (tournament.status === 'voting') {
+        const bar = makeEl('div', 'action-bar');
+        const btn = makeEl('button', 'btn btn-primary', 'Submit Votes');
+        btn.onclick = () => submitTournamentVotes(tournament.id);
+        bar.appendChild(btn);
+        const backBtn = makeEl('button', 'btn', 'Back');
+        backBtn.onclick = () => loadProject(currentProject.id);
+        bar.appendChild(backBtn);
+        container.appendChild(bar);
+    } else if (tournament.status === 'done') {
+        const bar = makeEl('div', 'action-bar');
+        const btn = makeEl('button', 'btn btn-primary', 'Back to Project');
+        btn.onclick = () => loadProject(currentProject.id);
+        bar.appendChild(btn);
+        container.appendChild(bar);
+    }
+}
+
+let tournamentVotes = {};
+
+function voteTournamentPair(tournamentId, pairIdx, side) {
+    tournamentVotes[pairIdx] = side;
+    const tournament = (currentProject.tournaments || []).find(t => t.id === tournamentId);
+    if (tournament) {
+        tournament.pairs[pairIdx].winner = side;
+        renderTournament(tournament);
+    }
+}
+
+async function submitTournamentVotes(tournamentId) {
+    if (!currentProject) return;
+    if (Object.keys(tournamentVotes).length === 0) {
+        showToast('Vote on at least one pair', 'error');
+        return;
+    }
+
+    try {
+        const resp = await fetch('/api/forge/project/' + currentProject.id + '/tournament/' + tournamentId + '/vote', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ votes: tournamentVotes }),
+        });
+        const data = await resp.json();
+        if (data.error) { showToast(data.error, 'error'); return; }
+
+        showToast('Votes submitted', 'success');
+        tournamentVotes = {};
+        await loadProject(currentProject.id);
+    } catch(e) {
+        showToast('Failed to submit votes', 'error');
+    }
+}
+
+// Download generation history CSV
+function downloadHistory() {
+    if (!currentProject) return;
+    window.open('/api/forge/project/' + currentProject.id + '/history', '_blank');
+}
+
+// Listen for lora-focus changes
+document.getElementById('lora-focus')?.addEventListener('change', () => {
+    if (currentProject) updateRegionDisplay(currentProject);
+});
+</script>
+{% endblock %}

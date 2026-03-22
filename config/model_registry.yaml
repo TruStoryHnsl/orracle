@@ -1,0 +1,57 @@
+# Orracle Trainer — Model Registry
+# Portable config — copy this file to any orrgate installation
+# for instant access to all network model endpoints.
+
+# Ollama instances reachable on the network
+ollama_hosts:
+  - name: local
+    url: http://localhost:11434
+    description: Local Ollama instance (orrgate)
+  - name: orrion
+    url: http://100.124.189.67:11434
+    description: GPU compute node (RTX 3070 8GB) — primary inference host
+    tailscale_ip: 100.124.189.67
+    local_ip: 192.168.1.152
+
+# Named model profiles for quick access
+# These map friendly names to specific model+host+params combos
+profiles:
+  orrvert-fast:
+    description: orrvert 7B Q4 with 8k context — fast inference
+    host: 100.124.189.67
+    model: orrvert:latest
+    options:
+      num_ctx: 8192
+      temperature: 0.8
+      top_p: 0.92
+      repeat_penalty: 1.1
+
+  orrvert-long:
+    description: orrvert 7B Q4 with 32k context — long connected outputs
+    host: 100.124.189.67
+    model: orrvert:latest
+    options:
+      num_ctx: 32768
+      temperature: 0.7
+      top_p: 0.95
+      repeat_penalty: 1.05
+
+  orrvert-creative:
+    description: orrvert 7B with high temperature for creative writing
+    host: 100.124.189.67
+    model: orrvert:latest
+    options:
+      num_ctx: 16384
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 80
+      repeat_penalty: 1.02
+
+# Claude Code integration
+# Used by claude-local launcher script
+claude_local:
+  host: orrion
+  model: orrvert:latest
+  # Ollama serves Anthropic-compatible API at /v1/messages
+  anthropic_base_url: http://100.124.189.67:11434
+  anthropic_auth_token: ollama

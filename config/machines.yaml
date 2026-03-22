@@ -1,0 +1,25 @@
+# Machine registry for orracle-dev remote pipeline dispatch.
+# project_path: Syncthing-synced orracle-dev root on each machine.
+# vault_path: passed as ORRACLE_SOURCE to run_pipeline.py.
+
+machines:
+  orrion:
+    host: 192.168.1.152
+    user: corr
+    vault_path: /mnt/vault/read/nifty/gay
+    project_path: ~/projects/orracle-dev
+    description: "CachyOS VM, RTX 3070"
+
+  orrpheus:
+    host: 100.66.55.59
+    user: coltonorr
+    vault_path: /Users/coltonorr/mnt/vault/read/nifty/gay
+    project_path: /Users/coltonorr/projects/orracle-dev
+    description: "macOS M1 Pro (Tailscale)"
+
+  orrgate:
+    host: 192.168.1.145
+    user: corr
+    vault_path: /mnt/vault/read/nifty/gay
+    project_path: ~/projects/orracle-dev
+    description: "Docker/services VM"

@@ -1,0 +1,373 @@
+{% extends "base.html" %}
+{% block title %}Train — Orracle Trainer{% endblock %}
+
+{% block content %}
+<h1 class="mb-2">Start Training</h1>
+
+<form id="train-form" class="card" onsubmit="startTraining(event)">
+    <!-- Basic config -->
+    <div class="form-row">
+        <div class="form-group">
+            <label>Target Machine</label>
+            <select id="f-machine" name="machine" onchange="onMachineChange()">
+                <option value="local"
+                    data-caps="{{ hw.capabilities | join(',') }}"
+                    data-workdir="{{ hw.tools.get('python3', '') and '~/projects/orrapus/niftytune' }}"
+                    data-data="./data/mlx">
+                    {{ hw.hostname }} (local)
+                </option>
+                {% for name, m in machines.items() if not m.get('is_local') %}
+                <option value="{{ name }}"
+                    data-caps="{{ (m._hw.capabilities or []) | join(',') if m._hw else '' }}"
+                    data-workdir="{{ m.get('niftytune_path', '~/niftytune') }}"
+                    data-data="./data/mlx_500k"
+                    data-hostname="{{ m.hostname }}">
+                    {{ name }} ({{ m.hostname }})
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Framework</label>
+            <select id="f-framework" name="framework">
+                {% if 'mlx_lora' in hw.capabilities %}
+                <option value="mlx_lora">mlx-lm LoRA</option>
+                {% endif %}
+                {% if 'unsloth_qlora' in hw.capabilities %}
+                <option value="unsloth_qlora">Unsloth QLoRA</option>
+                {% endif %}
+                {% if 'transformers_sft' in hw.capabilities %}
+                <option value="transformers_sft">Transformers SFT</option>
+                {% endif %}
+                {% if not hw.capabilities %}
+                <option value="mlx_lora">mlx-lm LoRA (not detected)</option>
+                <option value="unsloth_qlora">Unsloth QLoRA (not detected)</option>
+                {% endif %}
+            </select>
+        </div>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label>Base Model</label>
+            <select id="f-model-preset" name="model_preset" onchange="onPresetChange()">
+                {% for key, preset in presets.items() %}
+                <option value="{{ key }}">{{ preset.label }}</option>
+                {% endfor %}
+                <option value="custom">Custom...</option>
+            </select>
+        </div>
+        <div class="form-group" id="custom-model-group" style="display:none">
+            <label>Custom Model ID</label>
+            <input type="text" id="f-model" name="model" placeholder="mlx-community/...">
+        </div>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label>Training Type</label>
+            <select id="f-type" name="train_type">
+                <option value="cpt">Continued Pre-Training (CPT)</option>
+                <option value="sft">Supervised Fine-Tuning (SFT)</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Output Name</label>
+            <input type="text" id="f-output" name="output_name" placeholder="orrvert-7b-v2" value="orrvert-7b">
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Data Path (on target machine)</label>
+        <input type="text" id="f-data" name="data_path" placeholder="./data/mlx" value="./data/mlx">
+    </div>
+
+    <div class="form-group">
+        <label>Working Directory (on target machine)</label>
+        <input type="text" id="f-workdir" name="work_dir" placeholder="~/niftytune" value="{{ hw.tools.get('python3', '') and '~/projects/orrapus/niftytune' }}">
+    </div>
+
+    <!-- LoRA Config (collapsible) -->
+    <div class="collapsible-header" onclick="toggleCollapsible(this)">
+        LoRA Configuration <span class="arrow">&#9654;</span>
+    </div>
+    <div class="collapsible-body">
+        <div class="form-row three">
+            <div class="form-group">
+                <label>Rank</label>
+                <input type="number" id="f-rank" name="lora_rank" value="16" min="4" max="128">
+            </div>
+            <div class="form-group">
+                <label>Scale (alpha/rank)</label>
+                <input type="number" id="f-scale" name="lora_scale" value="2.0" step="0.1">
+            </div>
+            <div class="form-group">
+                <label>Dropout</label>
+                <input type="number" id="f-dropout" name="lora_dropout" value="0.0" step="0.05" min="0" max="0.5">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Num Layers</label>
+            <input type="number" id="f-layers" name="num_layers" value="32">
+        </div>
+    </div>
+
+    <!-- Training Config (collapsible) -->
+    <div class="collapsible-header" onclick="toggleCollapsible(this)">
+        Training Configuration <span class="arrow">&#9654;</span>
+    </div>
+    <div class="collapsible-body">
+        <div class="form-row three">
+            <div class="form-group">
+                <label>Iterations</label>
+                <input type="number" id="f-iters" name="iters" value="25000" min="100">
+            </div>
+            <div class="form-group">
+                <label>Batch Size</label>
+                <input type="number" id="f-batch" name="batch_size" value="2" min="1" max="32">
+            </div>
+            <div class="form-group">
+                <label>Max Seq Length</label>
+                <input type="number" id="f-seqlen" name="max_seq_len" value="2048" min="128" max="8192">
+            </div>
+        </div>
+        <div class="form-row three">
+            <div class="form-group">
+                <label>Learning Rate</label>
+                <input type="text" id="f-lr" name="lr" value="2e-4">
+            </div>
+            <div class="form-group">
+                <label>LR End</label>
+                <input type="text" id="f-lr-end" name="lr_end" value="1e-5">
+            </div>
+            <div class="form-group">
+                <label>Warmup Steps</label>
+                <input type="number" id="f-warmup" name="warmup" value="500" min="0">
+            </div>
+        </div>
+        <div class="form-row three">
+            <div class="form-group">
+                <label>Save Every</label>
+                <input type="number" id="f-save" name="save_every" value="200" min="10">
+            </div>
+            <div class="form-group">
+                <label>Eval Every</label>
+                <input type="number" id="f-eval" name="eval_every" value="500" min="10">
+            </div>
+            <div class="form-group">
+                <label>Val Batches</label>
+                <input type="number" id="f-valbatch" name="val_batches" value="50" min="1">
+            </div>
+        </div>
+    </div>
+
+    <!-- Resume (collapsible) -->
+    <div class="collapsible-header" onclick="toggleCollapsible(this)" id="resume-header">
+        Resume from Checkpoint <span class="arrow">&#9654;</span>
+    </div>
+    <div class="collapsible-body" id="resume-body">
+        <div class="form-group">
+            <label>Adapter Checkpoint Path</label>
+            <div style="display:flex;gap:0.5rem">
+                <input type="text" id="f-resume" name="resume_adapter" placeholder="adapters_hq/0000200_adapters.safetensors" style="flex:1">
+                <button type="button" class="btn btn-sm" onclick="browseCheckpoints()">Browse</button>
+            </div>
+        </div>
+        <div id="checkpoint-list" style="display:none" class="mt-1"></div>
+    </div>
+
+    <div class="mt-2">
+        <button type="submit" class="btn btn-primary" id="submit-btn">Start Training</button>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const FRAMEWORK_MAP = {
+    'mlx_lora': 'mlx-lm LoRA',
+    'unsloth_qlora': 'Unsloth QLoRA',
+    'transformers_sft': 'Transformers SFT',
+};
+
+function toggleCollapsible(el) {
+    el.classList.toggle('open');
+    el.nextElementSibling.classList.toggle('open');
+}
+
+function onPresetChange() {
+    const v = document.getElementById('f-model-preset').value;
+    document.getElementById('custom-model-group').style.display = v === 'custom' ? '' : 'none';
+}
+
+function onMachineChange() {
+    const sel = document.getElementById('f-machine');
+    const opt = sel.options[sel.selectedIndex];
+    const caps = (opt.dataset.caps || '').split(',').filter(Boolean);
+
+    // Update framework dropdown
+    const fw = document.getElementById('f-framework');
+    fw.textContent = '';
+    for (const cap of caps) {
+        if (FRAMEWORK_MAP[cap]) {
+            const o = document.createElement('option');
+            o.value = cap;
+            o.textContent = FRAMEWORK_MAP[cap];
+            fw.appendChild(o);
+        }
+    }
+    if (fw.options.length === 0) {
+        const o = document.createElement('option');
+        o.value = 'mlx_lora';
+        o.textContent = 'mlx-lm LoRA (not detected)';
+        fw.appendChild(o);
+    }
+
+    // Update paths
+    if (opt.dataset.workdir) {
+        document.getElementById('f-workdir').value = opt.dataset.workdir;
+    }
+    if (opt.dataset.data) {
+        document.getElementById('f-data').value = opt.dataset.data;
+    }
+}
+
+function browseCheckpoints() {
+    const machine = document.getElementById('f-machine').value;
+    if (machine === 'local') {
+        showToast('Checkpoint browsing is for remote machines', 'info');
+        return;
+    }
+
+    const listEl = document.getElementById('checkpoint-list');
+    listEl.style.display = '';
+    listEl.textContent = 'Loading checkpoints...';
+
+    fetch('/api/remote/checkpoints/' + machine)
+        .then(r => r.json())
+        .then(checkpoints => {
+            listEl.textContent = '';
+            if (!checkpoints || checkpoints.length === 0) {
+                listEl.textContent = 'No checkpoints found';
+                return;
+            }
+            for (const cp of checkpoints) {
+                const row = document.createElement('div');
+                row.style.cssText = 'padding:0.3rem 0;cursor:pointer;border-bottom:1px solid var(--border)';
+                row.onmouseover = function() { this.style.backgroundColor = 'var(--surface-hover)'; };
+                row.onmouseout = function() { this.style.backgroundColor = ''; };
+
+                const name = document.createElement('span');
+                name.textContent = cp.name;
+                name.style.color = 'var(--accent)';
+
+                const meta = document.createElement('span');
+                meta.textContent = '  ' + cp.size + ' bytes  ' + cp.modified;
+                meta.style.cssText = 'color:var(--text-muted);font-size:0.8rem;margin-left:0.5rem';
+
+                row.appendChild(name);
+                row.appendChild(meta);
+
+                const path = cp.path;
+                row.addEventListener('click', function() {
+                    document.getElementById('f-resume').value = path;
+                    listEl.style.display = 'none';
+                });
+                listEl.appendChild(row);
+            }
+        })
+        .catch(err => {
+            listEl.textContent = 'Error: ' + err;
+        });
+}
+
+function startTraining(e) {
+    e.preventDefault();
+    const btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+
+    const form = document.getElementById('train-form');
+    const data = {};
+    for (const el of form.elements) {
+        if (el.name && el.value) data[el.name] = el.value;
+    }
+
+    fetch('/api/train/start', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.error) {
+            showToast(d.error, 'error');
+            btn.disabled = false;
+            btn.textContent = 'Start Training';
+            return;
+        }
+        showToast('Training started!', 'success');
+        setTimeout(function() { location.href = '/monitor/' + d.job_id; }, 500);
+    })
+    .catch(function(err) {
+        showToast('Failed: ' + err, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Start Training';
+    });
+}
+
+// Handle URL params for retry
+(function() {
+    const params = new URLSearchParams(location.search);
+    if (params.get('machine')) {
+        const sel = document.getElementById('f-machine');
+        for (let i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].value === params.get('machine')) {
+                sel.selectedIndex = i;
+                onMachineChange();
+                break;
+            }
+        }
+    }
+    if (params.get('framework')) {
+        const fw = document.getElementById('f-framework');
+        for (let i = 0; i < fw.options.length; i++) {
+            if (fw.options[i].value === params.get('framework')) {
+                fw.selectedIndex = i;
+                break;
+            }
+        }
+    }
+    if (params.get('output_name')) {
+        document.getElementById('f-output').value = params.get('output_name');
+    }
+    if (params.get('iters')) {
+        document.getElementById('f-iters').value = params.get('iters');
+    }
+    if (params.get('model')) {
+        // Check if it matches a preset
+        const presetSel = document.getElementById('f-model-preset');
+        let matched = false;
+        for (let i = 0; i < presetSel.options.length; i++) {
+            // We'll just set to custom with the model ID
+        }
+        presetSel.value = 'custom';
+        onPresetChange();
+        document.getElementById('f-model').value = params.get('model');
+    }
+    if (params.get('retry_from')) {
+        // Auto-open resume section and browse checkpoints
+        const header = document.getElementById('resume-header');
+        if (header && !header.classList.contains('open')) {
+            header.classList.add('open');
+            document.getElementById('resume-body').classList.add('open');
+        }
+        // Auto-browse checkpoints for remote machines
+        const machine = document.getElementById('f-machine').value;
+        if (machine !== 'local') {
+            browseCheckpoints();
+        }
+    }
+})();
+</script>
+{% endblock %}

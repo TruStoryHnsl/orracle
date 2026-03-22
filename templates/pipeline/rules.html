@@ -1,0 +1,320 @@
+{% extends "base.html" %}
+{% block title %}Orracle — Rule Libraries{% endblock %}
+
+{% block content %}
+<main>
+    <div class="section-header">
+        <h1>Rule Libraries</h1>
+        <div class="btn-group">
+            <button class="btn btn-sm" onclick="rules.importLibrary()">Import YAML</button>
+            <button class="btn btn-sm" onclick="rules.exportLibrary()">Export YAML</button>
+        </div>
+    </div>
+
+    <div class="form-row" style="margin-bottom:1rem">
+        <div class="form-group">
+            <label>Library</label>
+            <select id="library-select" onchange="rules.loadLibrary(this.value)">
+                <option value="">-- Select Library --</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Search</label>
+            <input type="text" id="rule-search" placeholder="Filter rules..." oninput="rules.filterRules(this.value)">
+        </div>
+    </div>
+
+    <div class="form-row" style="margin-bottom:1rem">
+        <div class="form-group">
+            <label>Category Filter</label>
+            <select id="category-filter" onchange="rules.filterByCategory(this.value)">
+                <option value="">All categories</option>
+            </select>
+        </div>
+        <div class="form-group" style="display:flex;align-items:flex-end;gap:0.5rem">
+            <button class="btn btn-sm" onclick="rules.enableAll()">Enable All</button>
+            <button class="btn btn-sm" onclick="rules.disableAll()">Disable All</button>
+            <span class="text-muted" id="rule-stats"></span>
+        </div>
+    </div>
+
+    <!-- Rule list -->
+    <div id="rule-list"></div>
+
+    <!-- Test panel -->
+    <div class="card mt-2">
+        <h3>Test Pattern</h3>
+        <div class="form-group">
+            <label>Regex Pattern</label>
+            <input type="text" id="test-pattern" placeholder="(?i)pattern.*here" style="font-family:var(--font-mono)">
+        </div>
+        <div class="form-group">
+            <label>Sample Text</label>
+            <textarea id="test-sample" rows="6" placeholder="Paste sample text to test against..."></textarea>
+        </div>
+        <div class="btn-group">
+            <button class="btn btn-primary btn-sm" onclick="rules.testPattern()">Test</button>
+        </div>
+        <div id="test-results" class="mt-1"></div>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const rules = {
+    currentLibrary: '',
+    allRules: [],
+    filteredRules: [],
+
+    async init() {
+        const resp = await fetch('/api/rules/libraries');
+        const libs = await resp.json();
+        const select = document.getElementById('library-select');
+        for (const lib of libs) {
+            const opt = document.createElement('option');
+            opt.value = lib.name;
+            opt.textContent = `${lib.name} (${lib.rule_count} rules)`;
+            select.appendChild(opt);
+        }
+        if (libs.length > 0) {
+            select.value = libs[0].name;
+            this.loadLibrary(libs[0].name);
+        }
+    },
+
+    async loadLibrary(name) {
+        if (!name) return;
+        this.currentLibrary = name;
+        const resp = await fetch(`/api/rules/library/${name}`);
+        const data = await resp.json();
+        this.allRules = data.rules || [];
+        this.filteredRules = [...this.allRules];
+
+        // Build category filter
+        const cats = [...new Set(this.allRules.map(r => r.category || 'uncategorized'))].sort();
+        const catSelect = document.getElementById('category-filter');
+        while (catSelect.children.length > 1) catSelect.removeChild(catSelect.lastChild);
+        for (const cat of cats) {
+            const opt = document.createElement('option');
+            opt.value = cat;
+            opt.textContent = cat;
+            catSelect.appendChild(opt);
+        }
+
+        this.renderRules();
+    },
+
+    filterRules(query) {
+        query = query.toLowerCase();
+        this.filteredRules = this.allRules.filter(r =>
+            (r.name || '').toLowerCase().includes(query) ||
+            (r.pattern || '').toLowerCase().includes(query) ||
+            (r.description || '').toLowerCase().includes(query)
+        );
+        this.renderRules();
+    },
+
+    filterByCategory(cat) {
+        if (cat) {
+            this.filteredRules = this.allRules.filter(r => (r.category || 'uncategorized') === cat);
+        } else {
+            this.filteredRules = [...this.allRules];
+        }
+        this.renderRules();
+    },
+
+    renderRules() {
+        const container = document.getElementById('rule-list');
+        container.textContent = '';
+
+        const enabled = this.allRules.filter(r => r.enabled).length;
+        document.getElementById('rule-stats').textContent =
+            `${enabled}/${this.allRules.length} enabled`;
+
+        if (this.filteredRules.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'empty-state';
+            const msg = document.createElement('p');
+            msg.textContent = 'No rules found';
+            empty.appendChild(msg);
+            container.appendChild(empty);
+            return;
+        }
+
+        const table = document.createElement('table');
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        for (const h of ['', 'Name', 'Category', 'Action', 'Pattern', 'Priority']) {
+            const th = document.createElement('th');
+            th.textContent = h;
+            headerRow.appendChild(th);
+        }
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        for (const rule of this.filteredRules) {
+            const tr = document.createElement('tr');
+            if (!rule.enabled) tr.style.opacity = '0.5';
+
+            // Toggle
+            const tdCheck = document.createElement('td');
+            const check = document.createElement('input');
+            check.type = 'checkbox';
+            check.checked = rule.enabled;
+            check.style.width = 'auto';
+            check.addEventListener('change', () => {
+                rule.enabled = check.checked;
+                tr.style.opacity = check.checked ? '1' : '0.5';
+                this.renderRules();
+            });
+            tdCheck.appendChild(check);
+            tr.appendChild(tdCheck);
+
+            const tdName = document.createElement('td');
+            tdName.textContent = rule.name || rule.id;
+            tr.appendChild(tdName);
+
+            const tdCat = document.createElement('td');
+            const badge = document.createElement('span');
+            badge.className = 'badge';
+            badge.textContent = rule.category || '';
+            tdCat.appendChild(badge);
+            tr.appendChild(tdCat);
+
+            const tdAction = document.createElement('td');
+            tdAction.textContent = rule.action || 'strip_line';
+            tdAction.style.color = 'var(--text-muted)';
+            tr.appendChild(tdAction);
+
+            const tdPattern = document.createElement('td');
+            tdPattern.textContent = (rule.pattern || '').substring(0, 60);
+            tdPattern.style.fontFamily = 'var(--font-mono)';
+            tdPattern.style.fontSize = '0.75rem';
+            tdPattern.title = rule.pattern || '';
+            tr.appendChild(tdPattern);
+
+            const tdPrio = document.createElement('td');
+            tdPrio.textContent = rule.priority || '';
+            tdPrio.style.color = 'var(--text-muted)';
+            tr.appendChild(tdPrio);
+
+            tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+        container.appendChild(table);
+    },
+
+    enableAll() {
+        for (const r of this.allRules) r.enabled = true;
+        this.renderRules();
+    },
+
+    disableAll() {
+        for (const r of this.allRules) r.enabled = false;
+        this.renderRules();
+    },
+
+    async saveLibrary() {
+        if (!this.currentLibrary) return;
+        const resp = await fetch(`/api/rules/library/${this.currentLibrary}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rules: this.allRules }),
+        });
+        const data = await resp.json();
+        showToast(`Saved ${data.rule_count} rules`, 'success');
+    },
+
+    async testPattern() {
+        const pattern = document.getElementById('test-pattern').value;
+        const sample = document.getElementById('test-sample').value;
+        if (!pattern || !sample) return;
+
+        const resp = await fetch('/api/rules/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pattern, sample_text: sample }),
+        });
+        const data = await resp.json();
+        const container = document.getElementById('test-results');
+        container.textContent = '';
+
+        if (data.error) {
+            const err = document.createElement('p');
+            err.className = 'text-error';
+            err.textContent = 'Regex error: ' + data.error;
+            container.appendChild(err);
+            return;
+        }
+
+        const summary = document.createElement('p');
+        summary.textContent = `${data.count} match${data.count !== 1 ? 'es' : ''} found`;
+        summary.style.color = data.count > 0 ? 'var(--success)' : 'var(--text-muted)';
+        container.appendChild(summary);
+
+        for (const m of (data.matches || []).slice(0, 10)) {
+            const div = document.createElement('div');
+            div.style.cssText = 'font-size:0.8rem;padding:0.25rem 0;border-bottom:1px solid var(--border-color)';
+            const lineSpan = document.createElement('span');
+            lineSpan.className = 'text-muted';
+            lineSpan.textContent = `Line ${m.line}: `;
+            div.appendChild(lineSpan);
+            const matchSpan = document.createElement('span');
+            matchSpan.className = 'text-accent';
+            matchSpan.textContent = m.text;
+            div.appendChild(matchSpan);
+            container.appendChild(div);
+        }
+    },
+
+    exportLibrary() {
+        if (!this.allRules.length) return;
+        const yaml = 'rules:\n' + this.allRules.map(r => {
+            let lines = [`- id: ${r.id}`];
+            if (r.name) lines.push(`  name: ${r.name}`);
+            if (r.category) lines.push(`  category: ${r.category}`);
+            lines.push(`  enabled: ${r.enabled}`);
+            if (r.priority) lines.push(`  priority: ${r.priority}`);
+            if (r.action) lines.push(`  action: ${r.action}`);
+            if (r.pattern) lines.push(`  pattern: ${r.pattern}`);
+            if (r.description) lines.push(`  description: ${r.description}`);
+            if (r.replacement !== undefined) lines.push(`  replacement: '${r.replacement}'`);
+            return lines.join('\n');
+        }).join('\n');
+
+        const blob = new Blob([yaml], { type: 'text/yaml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${this.currentLibrary || 'rules'}.yaml`;
+        a.click();
+        URL.revokeObjectURL(url);
+    },
+
+    importLibrary() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.yaml,.yml';
+        input.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const text = await file.text();
+            // Send to API
+            const name = file.name.replace(/\.ya?ml$/, '');
+            const resp = await fetch(`/api/rules/library/${name}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rules: [] }), // Will be parsed server-side
+            });
+            showToast(`Imported library: ${name}`, 'success');
+            location.reload();
+        });
+        input.click();
+    },
+};
+
+document.addEventListener('DOMContentLoaded', () => rules.init());
+</script>
+{% endblock %}

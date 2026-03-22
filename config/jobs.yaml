@@ -1,0 +1,33 @@
+jobs:
+  '1773098010':
+    id: '1773098010'
+    status: failed
+    framework: mlx_lora
+    machine: orrpheus
+    model: mlx-community/Mistral-7B-Instruct-v0.3-4bit
+    output_name: orrvert-7b-v2 (lr-fix-test)
+    total_iters: 200
+    config: {}
+    started: '2026-03-09 16:13:33'
+    finished: '2026-03-09 17:10:00'
+    final_loss: 8.303
+    best_val_loss: 2.292
+    monitor_id: null
+    remote_log: ~/niftytune/job_1773098010.log
+    session_name: orracle_1773098010
+  '1773107231':
+    id: '1773107231'
+    status: completed
+    framework: mlx_lora
+    machine: orrpheus
+    model: mlx-community/Mistral-7B-Instruct-v0.3-4bit
+    output_name: orrvert-7b-v2
+    total_iters: 500
+    config: {}
+    started: '2026-03-09 18:47:14'
+    finished: '2026-03-09 20:53:00'
+    final_loss: 2.253
+    best_val_loss: 2.245
+    monitor_id: remote_1773110217
+    remote_log: ~/niftytune/job_1773107231.log
+    session_name: orracle_1773107231

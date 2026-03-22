@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Orracle — Dashboard{% endblock %}
+
+{% block content %}
+<main>
+    <div class="section-header">
+        <h1>Orracle</h1>
+        <span class="text-muted">AI Training Data Pipeline & Model Management</span>
+    </div>
+
+    <div class="card-grid">
+        <a href="/pipeline" class="card" style="text-decoration:none">
+            <h3>Pipeline</h3>
+            <p class="text-secondary">Process raw data into training-ready datasets. Text cleaning, video analysis, rule management.</p>
+        </a>
+        <a href="/train" class="card" style="text-decoration:none">
+            <h3>Train</h3>
+            <p class="text-secondary">Configure and launch LoRA fine-tuning jobs on local or remote machines.</p>
+        </a>
+        <a href="/export" class="card" style="text-decoration:none">
+            <h3>Export</h3>
+            <p class="text-secondary">Fuse adapters, convert to GGUF, create Ollama models.</p>
+        </a>
+        <a href="/compare" class="card" style="text-decoration:none">
+            <h3>Compare</h3>
+            <p class="text-secondary">Side-by-side model comparison with streaming generation.</p>
+        </a>
+        <a href="/forge" class="card" style="text-decoration:none">
+            <h3>Forge</h3>
+            <p class="text-secondary">Evolutionary LoRA weight refinement and model breeding.</p>
+        </a>
+        <a href="/machines" class="card" style="text-decoration:none">
+            <h3>Machines</h3>
+            <p class="text-secondary">Manage network machines, hardware detection, remote dispatch.</p>
+        </a>
+    </div>
+</main>
+{% endblock %}

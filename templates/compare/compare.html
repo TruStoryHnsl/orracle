@@ -1,0 +1,667 @@
+{% extends "base.html" %}
+{% block title %}Compare — Orracle Trainer{% endblock %}
+
+{% block head %}
+<style>
+.compare-layout {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 140px);
+    gap: 0;
+}
+
+/* Top bar: shared controls */
+.compare-controls {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.5rem 0;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+.compare-controls .btn-group { margin-left: auto; }
+
+/* Panel grid */
+.panel-grid {
+    display: grid;
+    gap: 0.75rem;
+    flex: 1;
+    min-height: 0;
+}
+.panel-grid.panels-1 { grid-template-columns: 1fr; }
+.panel-grid.panels-2 { grid-template-columns: 1fr 1fr; }
+.panel-grid.panels-3 { grid-template-columns: 1fr 1fr 1fr; }
+.panel-grid.panels-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+/* Individual panel */
+.compare-panel {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    min-height: 0;
+    overflow: hidden;
+}
+
+.panel-header {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    flex-shrink: 0;
+}
+.panel-header select {
+    flex: 1;
+    font-size: 0.8rem;
+    padding: 0.3rem 0.5rem;
+}
+.panel-header .panel-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-weight: 500;
+    white-space: nowrap;
+}
+.panel-header .btn-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1rem;
+    padding: 0 0.25rem;
+    cursor: pointer;
+    line-height: 1;
+}
+.panel-header .btn-close:hover { color: var(--error); }
+
+.panel-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-height: 0;
+}
+
+.panel-stats {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border-color);
+    flex-shrink: 0;
+    display: flex;
+    gap: 0.75rem;
+}
+.panel-stats .stat-highlight { color: var(--accent); }
+
+/* Messages */
+.msg {
+    padding: 0.5rem 0.75rem;
+    border-radius: 5px;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+.msg-user {
+    align-self: flex-end;
+    max-width: 90%;
+    background: var(--accent-dim);
+    color: #fff;
+    border-bottom-right-radius: 2px;
+}
+.msg-assistant {
+    align-self: flex-start;
+    max-width: 95%;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border-bottom-left-radius: 2px;
+}
+.msg-system {
+    align-self: center;
+    background: none;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    padding: 0.15rem;
+}
+.msg-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-bottom: 0.15rem;
+}
+
+/* Shared input */
+.compare-input-area {
+    flex-shrink: 0;
+    border-top: 1px solid var(--border-color);
+    padding: 0.5rem 0 0 0;
+}
+.compare-input-row {
+    display: flex;
+    gap: 0;
+}
+.compare-input-row textarea {
+    flex: 1;
+    border-radius: 6px 0 0 6px;
+    resize: none;
+    min-height: 50px;
+    max-height: 120px;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.85rem;
+}
+.compare-input-row button {
+    border-radius: 0 6px 6px 0;
+    border-left: none;
+    padding: 0 1.25rem;
+    white-space: nowrap;
+}
+
+/* Params row */
+.compare-params {
+    display: flex;
+    gap: 1rem;
+    padding: 0.4rem 0;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.param-group {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+.param-group input, .param-group textarea {
+    width: auto;
+    font-size: 0.75rem;
+    padding: 0.2rem 0.4rem;
+}
+.param-group input[type="range"] { width: 80px; }
+.param-group input[type="number"] { width: 55px; }
+.param-val { color: var(--accent); min-width: 2em; }
+.param-group textarea {
+    width: 250px;
+    height: 1.6em;
+    min-height: 1.6em;
+    resize: vertical;
+}
+
+/* Streaming indicator */
+.streaming-indicator {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: pulse 1s infinite;
+    margin-left: 3px;
+    vertical-align: middle;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+/* Panel streaming state */
+.compare-panel.streaming { border-color: var(--accent-dim); }
+
+@media (max-width: 768px) {
+    .compare-layout { height: auto; }
+    .panel-grid { grid-template-columns: 1fr !important; }
+    .panel-grid .compare-panel { min-height: 250px; }
+    .compare-params { gap: 0.5rem; }
+}
+
+@media (max-width: 1200px) {
+    .panel-grid.panels-3 { grid-template-columns: 1fr 1fr; }
+    .panel-grid.panels-4 { grid-template-columns: 1fr 1fr; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="compare-layout">
+    <!-- Controls bar -->
+    <div class="compare-controls">
+        <h2 style="margin:0;font-size:1.1rem">Compare Models</h2>
+        {% if not ollama_available %}
+        <span class="text-error" style="font-size:0.8rem">Ollama offline</span>
+        {% endif %}
+        <div class="btn-group">
+            <button class="btn btn-sm" onclick="addPanel()" id="add-panel-btn">+ panel</button>
+            <button class="btn btn-sm" onclick="clearAll()">clear all</button>
+            <button class="btn btn-sm btn-danger" id="stop-all-btn" onclick="stopAll()" disabled>stop all</button>
+        </div>
+    </div>
+
+    <!-- Panels -->
+    <div class="panel-grid panels-2" id="panel-grid">
+        <!-- Panels injected by JS -->
+    </div>
+
+    <!-- Shared input -->
+    <div class="compare-input-area">
+        <div class="compare-params">
+            <div class="param-group">
+                <label>system</label>
+                <textarea id="cmp-system" placeholder="You are a helpful assistant."></textarea>
+            </div>
+            <div class="param-group">
+                <label>temp</label>
+                <input type="range" id="cmp-temp" min="0" max="2" step="0.05" value="0.8"
+                    oninput="document.getElementById('cmp-temp-v').textContent=this.value">
+                <span class="param-val" id="cmp-temp-v">0.8</span>
+            </div>
+            <div class="param-group">
+                <label>top_p</label>
+                <input type="range" id="cmp-topp" min="0" max="1" step="0.01" value="0.9"
+                    oninput="document.getElementById('cmp-topp-v').textContent=this.value">
+                <span class="param-val" id="cmp-topp-v">0.9</span>
+            </div>
+            <div class="param-group">
+                <label>ctx</label>
+                <input type="number" id="cmp-ctx" value="4096" min="512" max="32768" step="512">
+            </div>
+        </div>
+        <div class="compare-input-row">
+            <textarea id="cmp-input" placeholder="Type a prompt to send to all panels..."
+                onkeydown="handleKey(event)"></textarea>
+            <button class="btn btn-primary" id="send-btn" onclick="sendToAll()">Send</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const ALL_MODELS = {{ models | tojson }};
+let panels = [];     // [{id, modelKey, conversation, controller, streaming, el}]
+let panelIdCounter = 0;
+
+const gridEl = document.getElementById('panel-grid');
+const inputEl = document.getElementById('cmp-input');
+const sendBtn = document.getElementById('send-btn');
+const stopAllBtn = document.getElementById('stop-all-btn');
+
+// ── Model helpers ──────────────────────────────────────────────────────────
+function modelKey(m) {
+    return (m.source || 'local') + '::' + m.name;
+}
+
+function modelLabel(m) {
+    const src = m.source && m.source !== 'local' ? m.source + '/' : '';
+    const info = [m.params, m.quant].filter(Boolean).join(', ');
+    return src + m.name + (info ? ' (' + info + ')' : '');
+}
+
+function modelByKey(key) {
+    return ALL_MODELS.find(m => modelKey(m) === key);
+}
+
+// ── Safe DOM helpers ───────────────────────────────────────────────────────
+function clearChildren(el) {
+    while (el.firstChild) el.removeChild(el.firstChild);
+}
+
+function makeSpan(text, className) {
+    const s = document.createElement('span');
+    if (className) s.className = className;
+    s.textContent = text;
+    return s;
+}
+
+// ── Panel management ───────────────────────────────────────────────────────
+function createPanelEl(id, selectedKey) {
+    const panel = document.createElement('div');
+    panel.className = 'compare-panel';
+    panel.id = 'panel-' + id;
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'panel-header';
+
+    const label = document.createElement('span');
+    label.className = 'panel-label';
+    label.textContent = String.fromCharCode(65 + panels.length);
+
+    const select = document.createElement('select');
+    select.id = 'panel-model-' + id;
+    if (!ALL_MODELS.length) {
+        const opt = document.createElement('option');
+        opt.disabled = true;
+        opt.textContent = 'No models available';
+        select.appendChild(opt);
+    }
+    ALL_MODELS.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = modelKey(m);
+        opt.textContent = modelLabel(m);
+        if (modelKey(m) === selectedKey) opt.selected = true;
+        select.appendChild(opt);
+    });
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'btn-close';
+    closeBtn.textContent = '\u00d7';
+    closeBtn.title = 'Remove panel';
+    closeBtn.onclick = () => removePanel(id);
+
+    header.appendChild(label);
+    header.appendChild(select);
+    header.appendChild(closeBtn);
+
+    // Messages
+    const messages = document.createElement('div');
+    messages.className = 'panel-messages';
+    messages.id = 'panel-msgs-' + id;
+    const sysMsg = document.createElement('div');
+    sysMsg.className = 'msg msg-system';
+    sysMsg.textContent = 'Select a model and send a prompt.';
+    messages.appendChild(sysMsg);
+
+    // Stats
+    const stats = document.createElement('div');
+    stats.className = 'panel-stats';
+    stats.id = 'panel-stats-' + id;
+
+    panel.appendChild(header);
+    panel.appendChild(messages);
+    panel.appendChild(stats);
+
+    return panel;
+}
+
+function addPanel(selectedKey) {
+    if (panels.length >= 4) {
+        showToast('Maximum 4 panels', 'error');
+        return;
+    }
+    const id = panelIdCounter++;
+    if (!selectedKey && ALL_MODELS.length) {
+        const usedKeys = new Set(panels.map(p => p.modelKey));
+        const unused = ALL_MODELS.find(m => !usedKeys.has(modelKey(m)));
+        selectedKey = modelKey(unused || ALL_MODELS[0]);
+    }
+
+    const el = createPanelEl(id, selectedKey);
+    gridEl.appendChild(el);
+
+    const p = {
+        id,
+        modelKey: selectedKey || '',
+        conversation: [],
+        controller: null,
+        streaming: false,
+        el
+    };
+    panels.push(p);
+
+    const sel = document.getElementById('panel-model-' + id);
+    sel.addEventListener('change', () => { p.modelKey = sel.value; });
+
+    updateGridClass();
+    updatePanelLabels();
+    updateAddBtn();
+}
+
+function removePanel(id) {
+    if (panels.length <= 1) {
+        showToast('Need at least one panel', 'error');
+        return;
+    }
+    const idx = panels.findIndex(p => p.id === id);
+    if (idx === -1) return;
+
+    const p = panels[idx];
+    if (p.controller) p.controller.abort();
+    p.el.remove();
+    panels.splice(idx, 1);
+
+    updateGridClass();
+    updatePanelLabels();
+    updateAddBtn();
+}
+
+function updateGridClass() {
+    gridEl.className = 'panel-grid panels-' + panels.length;
+}
+
+function updatePanelLabels() {
+    panels.forEach((p, i) => {
+        const label = p.el.querySelector('.panel-label');
+        if (label) label.textContent = String.fromCharCode(65 + i);
+    });
+}
+
+function updateAddBtn() {
+    document.getElementById('add-panel-btn').disabled = panels.length >= 4;
+}
+
+// ── Shared params ──────────────────────────────────────────────────────────
+function getSharedOptions() {
+    return {
+        temperature: parseFloat(document.getElementById('cmp-temp').value),
+        top_p: parseFloat(document.getElementById('cmp-topp').value),
+        num_ctx: parseInt(document.getElementById('cmp-ctx').value),
+    };
+}
+
+function getSystemPrompt() {
+    return document.getElementById('cmp-system').value.trim();
+}
+
+// ── Message rendering ──────────────────────────────────────────────────────
+function addMsg(panelId, role, content) {
+    const container = document.getElementById('panel-msgs-' + panelId);
+    const div = document.createElement('div');
+    div.className = 'msg msg-' + role;
+    const label = document.createElement('div');
+    label.className = 'msg-label';
+    label.textContent = role;
+    div.appendChild(label);
+    const text = document.createElement('div');
+    text.textContent = content;
+    div.appendChild(text);
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+    return text;
+}
+
+// ── Send to all panels ────────────────────────────────────────────────────
+function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendToAll();
+    }
+}
+
+function sendToAll() {
+    const text = inputEl.value.trim();
+    if (!text) return;
+
+    const anyStreaming = panels.some(p => p.streaming);
+    if (anyStreaming) return;
+
+    inputEl.value = '';
+    inputEl.style.height = 'auto';
+
+    const options = getSharedOptions();
+    const sysPrompt = getSystemPrompt();
+
+    panels.forEach(p => {
+        const sel = document.getElementById('panel-model-' + p.id);
+        p.modelKey = sel.value;
+        sendToPanel(p, text, sysPrompt, options);
+    });
+}
+
+function sendToPanel(panel, userText, sysPrompt, options) {
+    const m = modelByKey(panel.modelKey);
+    if (!m) {
+        showToast('Panel ' + String.fromCharCode(65 + panels.indexOf(panel)) + ': no model selected', 'error');
+        return;
+    }
+
+    addMsg(panel.id, 'user', userText);
+    panel.conversation.push({role: 'user', content: userText});
+
+    const messages = [];
+    if (sysPrompt) messages.push({role: 'system', content: sysPrompt});
+    messages.push(...panel.conversation);
+
+    const assistantText = addMsg(panel.id, 'assistant', '');
+    const indicator = document.createElement('span');
+    indicator.className = 'streaming-indicator';
+    assistantText.appendChild(indicator);
+
+    panel.streaming = true;
+    panel.el.classList.add('streaming');
+    updateStreamingUI();
+    let fullResponse = '';
+    const startTime = performance.now();
+
+    panel.controller = new AbortController();
+
+    const host = m.host || null;
+
+    fetch('/api/generate/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({model: m.name, messages, options, host}),
+        signal: panel.controller.signal,
+    }).then(response => {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        function read() {
+            reader.read().then(({done, value}) => {
+                if (done) { finish(); return; }
+                buffer += decoder.decode(value, {stream: true});
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    try {
+                        const data = JSON.parse(line.slice(6));
+                        if (data.type === 'token') {
+                            fullResponse += data.content;
+                            assistantText.textContent = fullResponse;
+                            const ind = document.createElement('span');
+                            ind.className = 'streaming-indicator';
+                            assistantText.appendChild(ind);
+                            const container = document.getElementById('panel-msgs-' + panel.id);
+                            container.scrollTop = container.scrollHeight;
+                        } else if (data.type === 'stats') {
+                            showPanelStats(panel.id, data, startTime);
+                        } else if (data.type === 'done') {
+                            finish();
+                            return;
+                        } else if (data.type === 'error') {
+                            assistantText.textContent = 'Error: ' + data.message;
+                            assistantText.style.color = 'var(--error)';
+                            finish();
+                            return;
+                        }
+                    } catch(e) {}
+                }
+                read();
+            }).catch(e => {
+                if (e.name !== 'AbortError') {
+                    assistantText.textContent = fullResponse || 'Connection lost';
+                }
+                finish();
+            });
+        }
+        read();
+    }).catch(e => {
+        if (e.name !== 'AbortError') {
+            assistantText.textContent = 'Error: ' + e.message;
+            assistantText.style.color = 'var(--error)';
+        }
+        finish();
+    });
+
+    function finish() {
+        panel.streaming = false;
+        panel.controller = null;
+        panel.el.classList.remove('streaming');
+        const ind = assistantText.querySelector('.streaming-indicator');
+        if (ind) ind.remove();
+        if (fullResponse) {
+            assistantText.textContent = fullResponse;
+            panel.conversation.push({role: 'assistant', content: fullResponse});
+        }
+        const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+        const statsEl = document.getElementById('panel-stats-' + panel.id);
+        if (statsEl && !statsEl.textContent.includes('tok/s')) {
+            clearChildren(statsEl);
+            statsEl.appendChild(makeSpan(elapsed + 's elapsed'));
+        }
+        updateStreamingUI();
+    }
+}
+
+function showPanelStats(panelId, stats, startTime) {
+    const el = document.getElementById('panel-stats-' + panelId);
+    if (!el) return;
+    clearChildren(el);
+    if (stats.eval_count && stats.eval_duration) {
+        const tps = stats.eval_count / (stats.eval_duration / 1e9);
+        el.appendChild(makeSpan(tps.toFixed(1) + ' tok/s', 'stat-highlight'));
+    }
+    if (stats.eval_count) {
+        el.appendChild(makeSpan(stats.eval_count + ' tokens'));
+    }
+    if (stats.total_duration) {
+        el.appendChild(makeSpan((stats.total_duration / 1e9).toFixed(1) + 's'));
+    }
+    if (stats.prompt_eval_count) {
+        el.appendChild(makeSpan(stats.prompt_eval_count + ' prompt tokens'));
+    }
+}
+
+function updateStreamingUI() {
+    const anyStreaming = panels.some(p => p.streaming);
+    sendBtn.disabled = anyStreaming;
+    stopAllBtn.disabled = !anyStreaming;
+}
+
+// ── Controls ───────────────────────────────────────────────────────────────
+function stopAll() {
+    panels.forEach(p => {
+        if (p.controller) p.controller.abort();
+    });
+}
+
+function clearAll() {
+    panels.forEach(p => {
+        if (p.controller) p.controller.abort();
+        p.conversation = [];
+        const msgs = document.getElementById('panel-msgs-' + p.id);
+        clearChildren(msgs);
+        const info = document.createElement('div');
+        info.className = 'msg msg-system';
+        info.textContent = 'Cleared.';
+        msgs.appendChild(info);
+        const stats = document.getElementById('panel-stats-' + p.id);
+        clearChildren(stats);
+    });
+}
+
+// ── Auto-resize input ──────────────────────────────────────────────────────
+inputEl.addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+});
+
+// ── Init: start with 2 panels ─────────────────────────────────────────────
+addPanel();
+addPanel();
+inputEl.focus();
+</script>
+{% endblock %}

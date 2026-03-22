@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Orracle — Dashboard{% endblock %}
+
+{% block content %}
+<main>
+    <div class="section-header">
+        <h1>Active Pipelines</h1>
+        <button class="btn btn-sm" onclick="dashboard.refresh()">Refresh</button>
+    </div>
+
+    <div id="dashboard-content">
+        <div class="empty-state">Loading...</div>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var dashboard = {
+    refreshTimer: null,
+
+    async refresh() {
+        var container = document.getElementById('dashboard-content');
+        container.textContent = '';
+
+        try {
+            var resp = await fetch('/api/pipelines/active');
+            var machines = await resp.json();
+        } catch (e) {
+            var err = document.createElement('div');
+            err.className = 'empty-state';
+            err.textContent = 'Failed to fetch pipeline status';
+            container.appendChild(err);
+            return;
+        }
+
+        if (!machines.length) {
+            var empty = document.createElement('div');
+            empty.className = 'empty-state';
+            empty.textContent = 'No machines configured';
+            container.appendChild(empty);
+            return;
+        }
+
+        for (var i = 0; i < machines.length; i++) {
+            var m = machines[i];
+            var card = document.createElement('div');
+            card.className = 'card mb-1';
+            if (!m.reachable) {
+                card.style.opacity = '0.5';
+            }
+
+            // Machine header
+            var header = document.createElement('div');
+            header.className = 'flex justify-between items-center mb-1';
+
+            var titleEl = document.createElement('h3');
+            var dot = document.createElement('span');
+            dot.className = 'status-dot ' + (m.reachable ? 'online' : 'offline');
+            titleEl.appendChild(dot);
+            var nameSpan = document.createElement('span');
+            nameSpan.textContent = ' ' + m.machine;
+            titleEl.appendChild(nameSpan);
+            header.appendChild(titleEl);
+
+            var descEl = document.createElement('span');
+            descEl.className = 'text-muted';
+            descEl.textContent = m.description;
+            header.appendChild(descEl);
+
+            card.appendChild(header);
+
+            if (!m.reachable) {
+                var offline = document.createElement('div');
+                offline.className = 'text-muted';
+                offline.textContent = 'Unreachable (' + m.host + ')';
+                card.appendChild(offline);
+            } else if (m.jobs.length === 0) {
+                var idle = document.createElement('div');
+                idle.className = 'text-muted';
+                idle.textContent = 'No active pipelines';
+                card.appendChild(idle);
+            } else {
+                for (var j = 0; j < m.jobs.length; j++) {
+                    var job = m.jobs[j];
+                    var jobDiv = document.createElement('div');
+                    jobDiv.className = 'job-card card';
+                    jobDiv.style.marginBottom = '0.5rem';
+
+                    if (job.type === 'text_pipeline') {
+                        // Progress bar
+                        var pbar = document.createElement('div');
+                        pbar.className = 'progress-bar';
+                        var fill = document.createElement('div');
+                        fill.className = 'fill';
+                        fill.style.width = (job.percent || 0) + '%';
+                        pbar.appendChild(fill);
+                        jobDiv.appendChild(pbar);
+
+                        var metrics = document.createElement('div');
+                        metrics.style.cssText = 'display:flex;justify-content:space-between;font-size:0.8rem;margin-top:0.3rem';
+
+                        var left = document.createElement('span');
+                        left.className = 'text-accent';
+                        left.textContent = 'Text Pipeline: ' + (job.percent || 0) + '% \u2014 ' +
+                            (job.passed || '0') + ' stories passed';
+                        metrics.appendChild(left);
+
+                        var right = document.createElement('span');
+                        right.className = 'text-muted';
+                        right.textContent = (job.rate || '0') + ' stories/s' +
+                            (job.eta_min ? ', ~' + job.eta_min + 'm left' : '');
+                        metrics.appendChild(right);
+
+                        jobDiv.appendChild(metrics);
+
+                    } else if (job.type === 'video_pipeline') {
+                        var vinfo = document.createElement('div');
+                        vinfo.style.cssText = 'display:flex;justify-content:space-between;font-size:0.8rem';
+
+                        var vleft = document.createElement('span');
+                        vleft.className = 'text-accent';
+                        vleft.textContent = 'Video Pipeline: ' + (job.frames || '0') + ' frames extracted';
+                        vinfo.appendChild(vleft);
+
+                        var vbadge = document.createElement('span');
+                        vbadge.className = 'badge badge-running';
+                        vbadge.textContent = 'autonomous';
+                        vinfo.appendChild(vbadge);
+
+                        jobDiv.appendChild(vinfo);
+                    }
+
+                    // Last log line
+                    if (job.last_log) {
+                        var logLine = document.createElement('div');
+                        logLine.style.cssText = 'font-size:0.75rem;color:var(--text-muted);margin-top:0.3rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+                        logLine.textContent = job.last_log;
+                        jobDiv.appendChild(logLine);
+                    }
+
+                    card.appendChild(jobDiv);
+                }
+            }
+
+            container.appendChild(card);
+        }
+    },
+
+    startAutoRefresh() {
+        this.refresh();
+        this.refreshTimer = setInterval(function() { dashboard.refresh(); }, 15000);
+    },
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+    dashboard.startAutoRefresh();
+});
+</script>
+{% endblock %}

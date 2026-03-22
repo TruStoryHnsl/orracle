@@ -1,0 +1,1108 @@
+rules:
+- action: strip_line
+  category: dividers
+  description: Lines of repeated hyphens (3+)
+  enabled: true
+  id: divider_hyphens
+  name: Hyphen dividers
+  pattern: ^[-]{3,}\s*$
+  priority: 10
+- action: strip_line
+  category: dividers
+  description: Lines of repeated equals signs
+  enabled: true
+  id: divider_equals
+  name: Equals dividers
+  pattern: ^[=]{3,}\s*$
+  priority: 11
+- action: strip_line
+  category: dividers
+  description: Lines of repeated tildes
+  enabled: true
+  id: divider_tildes
+  name: Tilde dividers
+  pattern: ^[~]{3,}\s*$
+  priority: 12
+- action: strip_line
+  category: dividers
+  description: Lines of repeated asterisks (standalone)
+  enabled: true
+  id: divider_stars
+  name: Star dividers
+  pattern: ^[*]{3,}\s*$
+  priority: 13
+- action: strip_line
+  category: dividers
+  description: Lines of repeated underscores
+  enabled: true
+  id: divider_underscores
+  name: Underscore dividers
+  pattern: ^[_]{3,}\s*$
+  priority: 14
+- action: strip_line
+  category: dividers
+  description: Lines mixing separator characters (5+ chars)
+  enabled: true
+  id: divider_mixed
+  name: Mixed character dividers
+  pattern: ^[-=~*_+#]{5,}\s*$
+  priority: 15
+- action: strip_line
+  category: dividers
+  description: Unicode box-drawing character lines
+  enabled: true
+  id: divider_boxdraw
+  name: Box-drawing characters
+  pattern: ^[\u2500-\u257F]{3,}\s*$
+  priority: 16
+- action: strip_line
+  category: navigation
+  description: Navigation text like 'Next Chapter', 'Previous Part'
+  enabled: true
+  id: nav_chapter_links
+  name: Chapter navigation links
+  pattern: (?i)^\s*(next|previous|prev|back|forward)\s*(chapter|part|page|story|section)
+  priority: 20
+- action: strip_line
+  category: navigation
+  description: Standalone page numbers or 'Page X of Y'
+  enabled: true
+  id: nav_page_numbers
+  name: Page numbers
+  pattern: ^\s*(?:page\s+)?\d+\s*(?:of\s+\d+)?\s*$
+  priority: 21
+- action: strip_line
+  category: navigation
+  description: Table of contents header lines
+  enabled: true
+  id: nav_toc_markers
+  name: Table of contents markers
+  pattern: (?i)^\s*table\s+of\s+contents\s*$
+  priority: 22
+- action: strip_line
+  category: navigation
+  description: Breadcrumb-style navigation text
+  enabled: true
+  id: nav_breadcrumbs
+  name: Breadcrumb navigation
+  pattern: (?i)^\s*(home|index|archive)\s*[>|/]
+  priority: 23
+- action: strip_match
+  category: urls
+  description: Web URLs (http:// or https://)
+  enabled: true
+  id: url_http
+  name: HTTP/HTTPS URLs
+  pattern: https?://[^\s<>"'\)\]]{4,}
+  priority: 30
+- action: strip_match
+  category: urls
+  description: Email addresses
+  enabled: true
+  id: url_email
+  name: Email addresses
+  pattern: '[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
+  priority: 31
+- action: strip_line
+  category: urls
+  description: Lines containing only a URL
+  enabled: true
+  id: url_line
+  name: URL-only lines
+  pattern: ^\s*https?://[^\s]+\s*$
+  priority: 32
+- action: strip_line
+  category: boilerplate
+  description: Nifty Archive submission headers
+  enabled: true
+  id: boilerplate_nifty_header
+  name: Nifty Archive header
+  pattern: (?i)^\s*(?:this story|this work)\s+(?:is|was)\s+(?:posted|submitted|written)\s+(?:to|for|on)\s+(?:the\s+)?nifty
+  priority: 40
+- action: strip_line
+  category: boilerplate
+  description: Nifty Archive donation solicitation lines
+  enabled: true
+  id: boilerplate_nifty_donate
+  name: Nifty donation notice
+  pattern: (?i)(?:donate|donation|support).*nifty|nifty.*(?:donate|donation|support)
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: Lines containing Nifty Archive domain references
+  enabled: true
+  id: boilerplate_nifty_url
+  name: Nifty Archive URLs
+  pattern: (?i)nifty\.org|niftyarchive
+  priority: 42
+- action: strip_line
+  category: boilerplate
+  description: Copyright year lines
+  enabled: true
+  id: boilerplate_copyright
+  name: Copyright notices
+  pattern: (?i)^\s*(?:copyright|\(c\)|©)\s+\d{4}
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: Legal disclaimer lines
+  enabled: true
+  id: boilerplate_disclaimer
+  name: Legal disclaimers
+  pattern: (?i)^\s*(?:disclaimer|all rights reserved|reproduction.*prohibited)
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Standalone author/editor notes headers
+  enabled: true
+  id: boilerplate_author_notes
+  name: Author notes markers
+  pattern: (?i)^\s*(?:author'?s?\s+notes?|a/?n|editor'?s?\s+notes?)\s*[:;]?\s*$
+  priority: 45
+- action: strip_line
+  category: boilerplate
+  description: Lines soliciting reader feedback/email
+  enabled: true
+  id: boilerplate_feedback
+  name: Feedback solicitation
+  pattern: (?i)(?:send|email|write)\s+(?:me|the author|us)\s+(?:at|to|your|feedback|comments)
+  priority: 46
+- action: replace
+  category: artifacts
+  description: Collapse 4+ consecutive blank lines to 3
+  enabled: true
+  id: artifact_excess_blank
+  name: Excessive blank lines
+  pattern: \n{4,}
+  priority: 50
+  replacement: '
+
+
+
+    '
+- action: replace
+  category: artifacts
+  description: Remove trailing spaces/tabs from lines
+  enabled: true
+  id: artifact_trailing_spaces
+  name: Trailing whitespace
+  pattern: '[ \t]+$'
+  priority: 51
+  replacement: ''
+- action: strip_match
+  category: artifacts
+  description: Unicode replacement character (broken encoding)
+  enabled: true
+  id: artifact_replacement_char
+  name: Unicode replacement characters
+  pattern: \uFFFD+
+  priority: 52
+- action: strip_match
+  category: artifacts
+  description: Null byte characters
+  enabled: true
+  id: artifact_null_bytes
+  name: Null bytes
+  pattern: \x00+
+  priority: 53
+- action: strip_line
+  category: artifacts
+  description: Lines of a single character repeated 20+ times
+  enabled: true
+  id: artifact_repeated_chars
+  name: Excessively repeated characters
+  pattern: ^(.)\1{20,}\s*$
+  priority: 54
+- action: replace
+  category: boundaries
+  description: Replace --- dividers with story separator token
+  enabled: true
+  id: boundary_separator
+  name: Story separator (---)
+  pattern: ^\s*---\s*$
+  priority: 60
+  replacement: <|story|>
+- action: replace
+  category: boundaries
+  description: Normalize end markers and insert separator
+  enabled: true
+  id: boundary_end_markers
+  name: End-of-story markers
+  pattern: (?i)^\s*(?:the\s+end|fin|finis|ende)\s*\.?\s*$
+  priority: 61
+  replacement: 'The End
+
+
+    <|story|>'
+- action: replace
+  category: boundaries
+  description: Insert separator before Chapter 1 appearing mid-text (disabled by default
+    — review context first)
+  enabled: false
+  id: boundary_chapter_reset
+  name: Chapter 1 reset detection
+  pattern: (?i)(?<=\n\n)(?=Chapter\s+(?:1|One|I)\b)
+  priority: 62
+  replacement: '<|story|>
+
+
+    '
+- action: strip_line
+  category: boilerplate
+  description: Mature-readers-only disclaimer lines
+  enabled: true
+  id: boilerplate_mature_readers
+  name: Mature readers disclaimer
+  pattern: (?i)(?:this\s+story\s+is\s+for|story\s+is\s+intended\s+for)\s+mature\s+readers
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: Characters-are-fictitious disclaimer lines
+  enabled: true
+  id: boilerplate_fictitious
+  name: Fictitious characters disclaimer
+  pattern: (?i)(?:lifestyles?|characters?|events?|persons?)\s+.*(?:fictitious|fictional|fantasy|imaginary|not\s+real)
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: Underage reader warning lines
+  enabled: true
+  id: boilerplate_underage
+  name: Underage reader warning
+  pattern: (?i)if\s+you\s+are\s+(?:underage|under\s+(?:18|the\s+age)|a\s+minor)
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: Content aversion warning lines
+  enabled: true
+  id: boilerplate_dont_like
+  name: Content aversion warning
+  pattern: (?i)(?:if\s+you\s+don'?t\s+like\s+stories?\s+about|if\s+(?:this|such)\s+(?:type|kind)\s+of\s+(?:story|material)\s+(?:offends|bothers|is\s+not))
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: For-the-readers-enjoyment filler lines
+  enabled: true
+  id: boilerplate_readers_enjoyment
+  name: Readers enjoyment line
+  pattern: (?i)(?:all\s+)?for\s+the\s+reader'?s?\s+enjoyment
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Plea to keep archive site active
+  enabled: true
+  id: boilerplate_keep_site_active
+  name: Keep site active plea
+  pattern: (?i)(?:let'?s\s+)?keep\s+this\s+site\s+(?:active|running|alive|going)
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Generic site donation plea (catches variants missed by nifty-specific
+    rule)
+  enabled: true
+  id: boilerplate_donate_site
+  name: Donate to site (generic)
+  pattern: (?i)(?:please\s+)?donate\s+to\s+(?:this\s+)?(?:wonderful\s+)?(?:site|archive)
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Lines referencing story availability on Nifty
+  enabled: true
+  id: boilerplate_available_on_nifty
+  name: Available on Nifty reference
+  pattern: (?i)available\s+(?:on|at)\s+(?:the\s+)?nifty
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Open-minded-subjects boilerplate
+  enabled: true
+  id: boilerplate_open_minded
+  name: Open minded subjects
+  pattern: (?i)(?:good\s+)?stories\s+with\s+open\s*minded\s+subjects
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Standalone word DONATION (residual link text)
+  enabled: true
+  id: boilerplate_donation_standalone
+  name: Standalone DONATION word
+  pattern: (?i)^\s*DONATION\.?\s*$
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Author Notes header lines with colon
+  enabled: true
+  id: boilerplate_author_notes_header
+  name: Author notes with colon
+  pattern: (?i)^\s*(?:author'?s?\s+notes?|editor'?s?\s+notes?)\s*:\s*$
+  priority: 45
+- action: strip_line
+  category: boilerplate
+  description: Non-English disclaimer header (AVISO = warning)
+  enabled: true
+  id: boilerplate_aviso_disclaimer
+  name: Portuguese/Spanish disclaimer (AVISO)
+  pattern: (?i)^\s*AVISO\s*$
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Portuguese-language underage reader warning
+  enabled: true
+  id: boilerplate_menor_de_idade
+  name: Portuguese underage warning
+  pattern: (?i)(?:menor\s+de\s+idade|se\s+você\s+é\s+menor)
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Portuguese-language donation solicitation
+  enabled: true
+  id: boilerplate_faca_doacao
+  name: Portuguese donation plea
+  pattern: (?i)faça\s+uma\s+doa[çc][aã]o
+  priority: 44
+- action: strip_match
+  category: urls
+  description: URLs starting with www. (no http/https prefix)
+  enabled: true
+  id: url_www
+  name: www URLs (no protocol)
+  pattern: www\.[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,}(?:/[^\s<>"'\)\]]*)?
+  priority: 31
+- action: replace
+  category: artifacts
+  description: Strip leading tab characters from lines
+  enabled: true
+  id: artifact_leading_tabs
+  name: Leading tab characters
+  pattern: ^\t+
+  priority: 51
+  replacement: ''
+- action: strip_line
+  category: artifacts
+  description: Standalone by lines orphaned from title/author blocks after HTML strip
+  enabled: true
+  id: artifact_duplicate_title
+  name: Duplicate title lines
+  pattern: (?i)^\s*by\s*$
+  priority: 55
+- action: strip_line
+  category: boilerplate
+  description: Donations keep this site operating / donations made to Nifty
+  enabled: true
+  id: boilerplate_donations_keep
+  name: Donations keep site operating
+  pattern: (?i)(?:::?\s*)?(?:your\s+)?donations?\s+(?:keep|made\s+to|help)
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: Please keep this resource available and support nifty
+  enabled: true
+  id: boilerplate_keep_resource
+  name: Keep resource available
+  pattern: (?i)(?:::?\s*)?(?:please\s+)?keep\s+this\s+resource\s+available
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: This story is available solely because of donations
+  enabled: true
+  id: boilerplate_available_because
+  name: Story available because of donations
+  pattern: (?i)(?:::?\s*)?this\s+story\s+is\s+available\s+(?:solely\s+)?because
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: Work of fiction disclaimer (all variants)
+  enabled: true
+  id: boilerplate_work_of_fiction
+  name: Work of fiction disclaimer
+  pattern: (?i)(?:this\s+(?:story|work)\s+is\s+(?:an?\s+)?(?:original\s+)?)?work\s+of\s+(?:fiction|fantasy)\b
+  priority: 43
+- action: replace
+  category: artifacts
+  description: Strip double-colon prefixes (residual from Nifty HTML formatting)
+  enabled: true
+  id: artifact_double_colon_prefix
+  name: Double-colon prefixed lines
+  pattern: ^\s*::+\s*
+  priority: 50
+  replacement: ''
+- action: strip_line
+  category: boilerplate
+  description: Any resemblance to actual persons disclaimer
+  enabled: true
+  id: boilerplate_resemblance
+  name: Resemblance to persons disclaimer
+  pattern: (?i)(?:any\s+)?resemblance\s+to\s+(?:actual|real)\s+(?:persons?|events?|individuals?)
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: Products of the authors imagination disclaimer
+  enabled: true
+  id: boilerplate_products_imagination
+  name: Products of imagination
+  pattern: (?i)products?\s+of\s+(?:the\s+)?author'?s?\s+imagination
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: Used in a fictitious manner disclaimer
+  enabled: true
+  id: boilerplate_used_fictitiously
+  name: Used in fictitious manner
+  pattern: (?i)used\s+in\s+a\s+(?:fictitious|fictional)\s+manner
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: Standalone DONATIONS header line
+  enabled: true
+  id: boilerplate_donations_header
+  name: DONATIONS header
+  pattern: (?i)^\s*DONATIONS?\s*:?\s*$
+  priority: 40
+- action: strip_line
+  category: boilerplate
+  description: Nifty is a not-for-profit organization line
+  enabled: true
+  id: boilerplate_not_for_profit
+  name: Not-for-profit nifty
+  pattern: (?i)not-for-profit\s+organization
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: Your donations pay for web hosting line
+  enabled: true
+  id: boilerplate_donations_pay
+  name: Donations pay for hosting
+  pattern: (?i)(?:your\s+)?donations?\s+(?:pay|help\s+pay|go\s+toward)
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: Heavily relies on our donations line
+  enabled: true
+  id: boilerplate_heavily_relies
+  name: Relies on donations
+  pattern: (?i)(?:heavily|greatly)\s+relies?\s+(?:on|upon)\s+(?:our\s+)?donations?
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: Every little bit helps donation encouragement
+  enabled: true
+  id: boilerplate_every_little_bit
+  name: Every little bit helps
+  pattern: (?i)every\s+little\s+bit\s+helps
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: You can donate on the website line
+  enabled: true
+  id: boilerplate_you_can_donate
+  name: You can donate
+  pattern: (?i)you\s+can\s+donate\s+(?:on|at|to|via)
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: Standalone CONTENT line (from CONTENT WARNING header blocks)
+  enabled: true
+  id: boilerplate_content_warning
+  name: Content warning header
+  pattern: (?i)^\s*CONTENT\s*$
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Standalone WARNING header line
+  enabled: true
+  id: boilerplate_warning_header
+  name: WARNING header
+  pattern: (?i)^\s*WARNING\s*:?\s*$
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: May contain sexual content/situations disclaimer
+  enabled: true
+  id: boilerplate_may_contain
+  name: May contain sexual content
+  pattern: (?i)may\s+contain\s+(?:sexual|explicit|graphic|adult)\s+(?:content|material|situations)
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: Names, characters, businesses, places disclaimer block
+  enabled: true
+  id: boilerplate_names_characters
+  name: Names characters places disclaimer
+  pattern: (?i)names,?\s+characters,?\s+(?:businesses?,?\s+)?places
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: Copyright Author Year, all rights reserved (appears mid-line)
+  enabled: true
+  id: boilerplate_copyright_allrights
+  name: Copyright with all rights reserved (mid-line)
+  pattern: (?i)(?:copyright|©)\s+\S+\s+\d{4}.*all\s+rights?\s+reserved
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: Wonderful staff of editors/publishers line
+  enabled: true
+  id: boilerplate_editors_publishers
+  name: Staff editors/publishers
+  pattern: (?i)(?:staff|team)\s+of\s+(?:editors?|publishers?|volunteers?)
+  priority: 44
+- action: strip_line
+  category: artifacts
+  description: Residual us users text from HTML element artifacts
+  enabled: true
+  id: artifact_us_users
+  name: Residual us users text
+  pattern: (?i)^\s*us\s+users\s*$
+  priority: 50
+- action: strip_line
+  category: boilerplate
+  description: Keep it FREE! plea (including poetic variants)
+  enabled: true
+  id: boilerplate_keep_free
+  name: Keep it free
+  pattern: (?i)keep\s+it\s+(?:FREE|free|alive|running|going)\s*!
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Story licensed solely to Nifty line
+  enabled: true
+  id: boilerplate_licensed_nifty
+  name: Licensed to Nifty
+  pattern: (?i)licensed\s+(?:solely\s+)?to\s+(?:the\s+)?nifty
+  priority: 42
+- action: strip_line
+  category: boilerplate
+  description: Please help/support/thank nifty line
+  enabled: true
+  id: boilerplate_help_nifty
+  name: Help Nifty with coins
+  pattern: (?i)(?:please\s+)?(?:help|support|thank(?:ing)?)\s+(?:the\s+)?nifty
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: Donate to keep alive Nifty site
+  enabled: true
+  id: boilerplate_donate_keep_alive
+  name: Donate to keep site alive
+  pattern: (?i)donate\s+to\s+keep\s+(?:alive|running|going)
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: Listed in section of Nifty reference
+  enabled: true
+  id: boilerplate_listed_nifty
+  name: Listed on Nifty section
+  pattern: (?i)(?:listed|found|posted)\s+(?:in|on|at)\s+(?:the\s+)?(?:\w+\s+){0,3}(?:section|category|area)\s+(?:of|on)\s+(?:the\s+)?nifty
+  priority: 42
+- action: strip_line
+  category: boilerplate
+  description: Nifty is a wonderful resource line
+  enabled: true
+  id: boilerplate_nifty_resource
+  name: Nifty resource for stories
+  pattern: (?i)nifty\s+(?:is\s+)?a\s+(?:wonderful|great|fantastic|amazing)\s+(?:resource|site|place)
+  priority: 42
+- action: strip_line
+  category: boilerplate
+  description: Please consider thanking/donating line
+  enabled: true
+  id: boilerplate_consider_thanking
+  name: Consider thanking/donating
+  pattern: (?i)(?:please\s+)?consider\s+(?:thanking|donating|supporting)
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: May not be reproduced/copied disclaimer
+  enabled: true
+  id: boilerplate_may_not_reproduce
+  name: May not be reproduced
+  pattern: (?i)may\s+not\s+be\s+(?:reproduced|copied|distributed|republished)
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: TO DONATE CLICK HERE line
+  enabled: true
+  id: boilerplate_to_donate_click
+  name: To donate click here
+  pattern: (?i)to\s+donate\s+click
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: Your generous gesture will help line
+  enabled: true
+  id: boilerplate_generous_gesture
+  name: Generous gesture
+  pattern: (?i)(?:your\s+)?generous\s+gesture\s+will\s+help
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Posting stories on nifty reference line
+  enabled: true
+  id: boilerplate_posting_stories
+  name: Posting stories on nifty
+  pattern: (?i)(?:posting|publishing)\s+(?:them|these|the\s+stories?|my\s+stories?)\s+(?:on|at|to)\s+(?:the\s+)?nifty
+  priority: 42
+- action: strip_line
+  category: boilerplate
+  description: Warning this story does not contain... disclaimer
+  enabled: true
+  id: boilerplate_warning_no_sex
+  name: Warning this story
+  pattern: (?i)^\s*warning\s*:\s*this\s+story
+  priority: 43
+- action: strip_line
+  category: navigation
+  description: Standalone from-the-previous-chapter reference
+  enabled: true
+  id: nav_from_previous
+  name: From the previous chapter
+  pattern: (?i)^\s*\(?from\s+(?:the\s+)?previous\s+chapter\)?\s*$
+  priority: 20
+- action: strip_line
+  category: boilerplate
+  description: CONTINUES IN CHAPTER N line
+  enabled: true
+  id: boilerplate_continues_in
+  name: Continues in chapter
+  pattern: (?i)^\s*(?:to\s+be\s+)?continues?\s+in\s+(?:chapter|part|section)\s+\d
+  priority: 46
+- action: strip_line
+  category: boilerplate
+  description: Without first contacting the owner disclaimer
+  enabled: true
+  id: boilerplate_without_contacting
+  name: Without contacting owner
+  pattern: (?i)without\s+(?:first\s+)?contacting\s+(?:the\s+)?(?:owner|author)
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: Intended for mature audiences only
+  enabled: true
+  id: boilerplate_mature_audiences
+  name: Intended for mature audiences
+  pattern: (?i)(?:intended|written|meant|designed)\s+for\s+(?:mature|adult)\s+(?:audiences?|readers?)
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: This story contains graphic depictions line
+  enabled: true
+  id: boilerplate_story_contains
+  name: Story contains graphic content
+  pattern: (?i)this\s+story\s+(?:will\s+)?contain(?:s)?\s+(?:graphic|explicit|sexual|adult)
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: Standalone Gay Erotica genre label
+  enabled: true
+  id: boilerplate_gay_erotica
+  name: Gay Erotica label
+  pattern: (?i)^\s*Gay\s+Erotica\s*$
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Making a donation to Nifty line
+  enabled: true
+  id: boilerplate_donation_to_nifty
+  name: Donation to Nifty (embedded)
+  pattern: (?i)(?:making\s+a\s+)?donation\s+to\s+(?:the\s+)?nifty
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: Clicking the blue button on the front page
+  enabled: true
+  id: boilerplate_clicking_button
+  name: Clicking button on front page
+  pattern: (?i)clicking\s+(?:the\s+)?(?:little\s+)?(?:blue\s+)?button\s+on
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: Lines referencing nifty.com domain
+  enabled: true
+  id: boilerplate_nifty_com
+  name: Nifty.com domain
+  pattern: (?i)\bnifty\.com\b
+  priority: 42
+- action: strip_line
+  category: boilerplate
+  description: Go a long way to keep Nifty free line
+  enabled: true
+  id: boilerplate_go_long_way
+  name: Go a long way to keep
+  pattern: (?i)(?:go|goes)\s+a\s+long\s+way\s+to\s+keep
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Standalone THANK YOU line
+  enabled: true
+  id: boilerplate_thank_you_standalone
+  name: Standalone THANK YOU
+  pattern: (?i)^\s*THANK\s+YOU\s*!?\s*$
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Prolific Authors Section of Nifty reference
+  enabled: true
+  id: boilerplate_prolific_authors
+  name: Prolific Authors Section
+  pattern: (?i)Prolific\s+Authors?\s+(?:Section|page|list)
+  priority: 42
+- action: strip_line
+  category: boilerplate
+  description: Thanks to the guys at Nifty line
+  enabled: true
+  id: boilerplate_thanks_guys_nifty
+  name: Thanks to guys at Nifty
+  pattern: (?i)thanks?\s+to\s+.*(?:guys?|team|staff|people)\s+at\s+(?:the\s+)?nifty
+  priority: 42
+- action: strip_line
+  category: navigation
+  description: Next/Prev numbered chapter navigation (Next 18 - Title)
+  enabled: true
+  id: nav_next_numbered
+  name: Next/prev numbered navigation
+  pattern: (?i)^\s*(?:next|prev(?:ious)?)\s*:\s*\d+\s*[-–]
+  priority: 20
+- action: strip_line
+  category: boilerplate
+  description: Safe sex by reading PSA line
+  enabled: true
+  id: boilerplate_safe_sex
+  name: Safe sex PSA
+  pattern: (?i)(?:ultimate\s+form\s+of\s+)?safe\s+sex\s+by\s+reading
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Give his hands and heart (nifty.com masturbation joke PSA)
+  enabled: true
+  id: boilerplate_nifty_hands_heart
+  name: Nifty hands and heart
+  pattern: (?i)give\s+(?:his|your|their)\s+hands?\s+and\s+heart
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Standalone Audiences Only line (fragment from multi-line disclaimer)
+  enabled: true
+  id: boilerplate_audiences_only
+  name: Audiences Only fragment
+  pattern: (?i)^\s*(?:mature\s+)?audiences?\s+only\s*$
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: Graphic depictions of sexual content line
+  enabled: true
+  id: boilerplate_graphic_depictions
+  name: Graphic depictions line
+  pattern: (?i)(?:graphic|explicit)\s+(?:depictions?|descriptions?|scenes?)\s+of
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: Story will contain graphic content line
+  enabled: true
+  id: boilerplate_will_contain
+  name: Will contain graphic
+  pattern: (?i)(?:story|chapter|narrative)\s+(?:will\s+)?contain(?:s)?\s+(?:graphic|explicit|sexual|adult)
+  priority: 43
+- action: strip_line
+  category: boilerplate
+  description: Help keep the archive alive line
+  enabled: true
+  id: boilerplate_archive_alive
+  name: Keep archive alive
+  pattern: (?i)(?:keep|help)\s+(?:the\s+)?archive\s+(?:alive|running|going|free)
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: Keep the stories flowing line
+  enabled: true
+  id: boilerplate_stories_flowing
+  name: Stories flowing
+  pattern: (?i)(?:stories|content)\s+(?:flowing|coming|available)
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: NIFTY is a free site that provides line
+  enabled: true
+  id: boilerplate_nifty_free_site
+  name: NIFTY is a free site
+  pattern: (?i)nifty\s+is\s+a\s+free\s+site
+  priority: 42
+- action: strip_line
+  category: boilerplate
+  description: Nifty gives us an outlet line
+  enabled: true
+  id: boilerplate_nifty_gives_outlet
+  name: Nifty gives us outlet
+  pattern: (?i)nifty\s+gives\s+(?:us|you|writers)
+  priority: 42
+- action: strip_line
+  category: boilerplate
+  description: Consider donating to this website line
+  enabled: true
+  id: boilerplate_donating_website
+  name: Consider donating to website
+  pattern: (?i)(?:consider\s+)?donating\s+to\s+(?:this\s+)?(?:website|site|archive)
+  priority: 41
+- action: strip_line
+  category: boilerplate
+  description: Last chapter to be published on Nifty
+  enabled: true
+  id: boilerplate_published_on_nifty
+  name: Published on Nifty (last chapter)
+  pattern: (?i)(?:chapter|story|part)\s+to\s+be\s+published\s+on\s+(?:the\s+)?nifty
+  priority: 42
+- action: strip_line
+  category: boilerplate
+  description: Check my website for more line
+  enabled: true
+  id: boilerplate_check_my_website
+  name: Check my website
+  pattern: (?i)check\s+(?:my|our|the)\s+(?:website|site|page|blog)\b
+  priority: 44
+- action: strip_line
+  category: boilerplate
+  description: Please remember that NIFTY line
+  enabled: true
+  id: boilerplate_remember_nifty
+  name: Remember that NIFTY
+  pattern: (?i)(?:please\s+)?remember\s+that\s+(?:the\s+)?nifty
+  priority: 42
+- action: strip_line
+  category: boilerplate
+  description: You can contact the author line
+  enabled: true
+  id: boilerplate_you_can_contact
+  name: You can contact the author
+  pattern: (?i)you\s+can\s+contact\s+(?:me|the\s+author|us)
+  priority: 44
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph containing intended-for-mature-audiences (handles line breaks)
+  enabled: true
+  id: para_mature_audiences
+  name: Mature audiences paragraph
+  pattern: (?i)intended\s+for\s+(?:mature|adult)\s+(?:audiences?|readers?)
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph containing graphic/sexual content warning
+  enabled: true
+  id: para_graphic_content
+  name: Graphic content paragraph
+  pattern: (?i)(?:story|chapter|work)\s+(?:will\s+)?contains?\s+(?:graphic|explicit|sexual)
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph with work-of-fiction + names/characters disclaimer
+  enabled: true
+  id: para_work_of_fiction
+  name: Work of fiction paragraph
+  pattern: (?i)work\s+of\s+(?:fiction|fantasy).*(?:names|characters|resemblance|purely\s+coincidental)
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph mentioning both donation and nifty
+  enabled: true
+  id: para_donate_nifty
+  name: Donate to Nifty paragraph
+  pattern: (?i)(?:donat\w+|support|help).*\bnifty\b|\bnifty\b.*(?:donat\w+|support|help)
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph describing nifty as a free/wonderful site
+  enabled: true
+  id: para_nifty_free_site
+  name: Nifty free site paragraph
+  pattern: (?i)nifty\s+(?:is\s+)?(?:a\s+)?(?:wonderful|great|superb|fantastic|not-for-profit|free)\s+(?:free\s+)?(?:service|site|resource|organization)
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph warning underage readers to leave
+  enabled: true
+  id: para_underage
+  name: Underage warning paragraph
+  pattern: (?i)if\s+you\s+are\s+(?:underage|under\s+(?:18|the\s+age)|a\s+minor).*(?:leave|stop|don'?t\s+read|turn\s+away|go\s+away|close|exit|not\s+(?:for|intended))
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph with copyright + all rights reserved
+  enabled: true
+  id: para_copyright_reserved
+  name: Copyright all rights reserved paragraph
+  pattern: (?i)(?:copyright|©).*all\s+rights?\s+reserved
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph about donations keeping the site running
+  enabled: true
+  id: para_donations_keep
+  name: Donations keep site running paragraph
+  pattern: (?i)(?:your\s+)?donations?\s+(?:keep|help\s+keep|allow|enable|make\s+it\s+possible)
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph about nifty providing an outlet for writers
+  enabled: true
+  id: para_nifty_outlet
+  name: Nifty gives outlet paragraph
+  pattern: (?i)nifty\s+(?:gives|provides|offers)\s+(?:us|you|writers|authors)
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph about keeping nifty free/alive
+  enabled: true
+  id: para_keep_nifty_free
+  name: Keep nifty free paragraph
+  pattern: (?i)keep\s+(?:the\s+)?(?:nifty|archive|site|resource)\s+(?:free|alive|running|going|available)
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph about story being licensed to nifty
+  enabled: true
+  id: para_licensed_to_nifty
+  name: Licensed to Nifty paragraph
+  pattern: (?i)licensed\s+(?:solely\s+)?(?:to|for)\s+(?:the\s+)?nifty
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph referencing nifty prolific authors section
+  enabled: true
+  id: para_prolific_authors
+  name: Prolific authors paragraph
+  pattern: (?i)prolific\s+authors?\s+(?:section|page|list|area)
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph with fictional characters + resemblance disclaimer
+  enabled: true
+  id: para_fictional_disclaimer
+  name: Fictional characters paragraph
+  pattern: (?i)(?:characters?|persons?|events?)\s+(?:are\s+)?(?:entirely\s+)?(?:fictitious|fictional|imaginary).*(?:resemblance|coincidental|not\s+real)
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph identifying story as gay erotica with sexual content
+  enabled: true
+  id: para_gay_erotica_disclaimer
+  name: Gay erotica disclaimer paragraph
+  pattern: (?i)(?:gay|erotic|adult)\s+(?:story|fiction|erotica|romance).*(?:graphic\s+scenes?\s+of\s+sex|sexual\s+(?:content|interactions?|situations?))
+  priority: 101
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph asking to donate to this wonderful site
+  enabled: true
+  id: para_donate_wonderful_site
+  name: Donate to wonderful site paragraph
+  pattern: (?i)(?:please\s+)?donate\s+to\s+(?:this\s+)?(?:wonderful\s+)?(?:site|archive)
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph containing all rights reserved
+  enabled: true
+  id: para_all_rights_reserved
+  name: All rights reserved paragraph
+  pattern: (?i)all\s+rights?\s+reserved
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph warning underage readers (broad match for broken lines)
+  enabled: true
+  id: para_underage_broad
+  name: Underage warning paragraph (broad)
+  pattern: (?i)(?:you\s+are\s+)?underage.*(?:please\s+(?:turn|leave|go|stop|close)|don.?t\s+(?:read|like)\s+stories)
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph asking to give generously to nifty
+  enabled: true
+  id: para_give_generously
+  name: Give generously paragraph
+  pattern: (?i)(?:please\s+)?give\s+(?:generously|freely)\s+to\s+(?:the\s+)?nifty
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph warning readers who dont like gay stories
+  enabled: true
+  id: para_dont_like_stories
+  name: Dont like stories paragraph
+  pattern: (?i)(?:if\s+you\s+)?don.?t\s+like\s+stories?\s+(?:about|involving|with|containing).*(?:gay|homosexual|male|sex|erotic)
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph about story being published on nifty
+  enabled: true
+  id: para_published_nifty
+  name: Published on Nifty paragraph
+  pattern: (?i)(?:posted|published|available|found|listed)\s+(?:\w+\s+){0,5}(?:on|at|in)\s+(?:the\s+)?nifty
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph about nifty being a resource for internet authors
+  enabled: true
+  id: para_internet_authors
+  name: Internet authors resource paragraph
+  pattern: (?i)(?:resource|service|place|site)\s+for\s+(?:internet\s+)?(?:authors?|writers?)
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph about enjoyed my submission to nifty
+  enabled: true
+  id: para_submission_to_nifty
+  name: Submission to Nifty paragraph
+  pattern: (?i)(?:my\s+)?submission\s+to\s+(?:the\s+)?nifty
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph thanking nifty
+  enabled: true
+  id: para_thanks_nifty
+  name: Thanks nifty paragraph
+  pattern: (?i)(?:mucho\s+)?thanks?\s+(?:to\s+)?(?:the\s+)?nifty\b
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph about donation to keep this site in operation
+  enabled: true
+  id: para_donation_keep_site
+  name: Donation to keep site running paragraph
+  pattern: (?i)donation\w*\s+to\s+keep\s+(?:this\s+)?(?:\w+\s+)?(?:site|archive|resource)\s+(?:in\s+operation|running|going|alive|free|available)
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph about archive existing because of donations
+  enabled: true
+  id: para_archive_exists_because
+  name: Archive exists because of donations
+  pattern: (?i)(?:this\s+)?archive\s+exists?\s+(?:only\s+)?because\s+of\s+donation
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph about site being free but costing money
+  enabled: true
+  id: para_site_is_free_costs
+  name: Site is free but costs money
+  pattern: (?i)(?:this\s+)?(?:site|archive)\s+is\s+free.*(?:costs?\s+money|still\s+costs|needs?\s+(?:your\s+)?(?:support|help|donations?))
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph asking reader to consider giving a donation
+  enabled: true
+  id: para_giving_small_donation
+  name: Consider giving a donation
+  pattern: (?i)(?:consider|please)\s+(?:giving|making)\s+(?:a\s+)?(?:small\s+)?donation
+  priority: 100
+- action: strip_paragraph
+  category: boilerplate
+  description: Paragraph about donation to this splendid/wonderful archive
+  enabled: true
+  id: para_donation_to_archive
+  name: Donation to this archive paragraph
+  pattern: (?i)donation\w*\s+to\s+this\s+(?:\w+\s+)?(?:archive|site|resource)
+  priority: 100
+- id: key_phrase_line_match_mmwuyvst
+  name: Key phrase (line match)
+  category: boilerplate
+  enabled: true
+  priority: 100
+  action: strip_line
+  pattern: (?i)This is a story involving scat play between adult males\.  A
+  description: Strip lines containing this phrase
