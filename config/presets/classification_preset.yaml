@@ -1,0 +1,20 @@
+# Classification model training preset (planned)
+# Trains a smaller model to categorize/tag/rate content.
+
+training_type: classification
+description: Train a classifier on labeled data (tag, category, quality score)
+
+suggested_params:
+  base_model: distilbert-base-uncased
+  epochs: 5
+  batch_size: 16
+  learning_rate: 5e-5
+  max_seq_length: 512
+  num_labels: 10  # adjust to your label count
+
+notes: |
+  Classification training requires labeled data in format:
+    {"text": "...", "label": "category_name"}
+  Or multi-label: {"text": "...", "labels": ["tag1", "tag2"]}
+  The pipeline builds a label map automatically from the dataset.
+  Recommended base models: distilbert, roberta-base, deberta-v3-small.

@@ -1,0 +1,20 @@
+# Embedding model training preset (planned)
+# Fine-tunes a sentence transformer for semantic search/similarity.
+
+training_type: embedding
+description: Fine-tune sentence embeddings on domain-specific text pairs
+
+suggested_params:
+  base_model: sentence-transformers/all-MiniLM-L6-v2
+  epochs: 3
+  batch_size: 32
+  learning_rate: 2e-5
+  max_seq_length: 256
+  warmup_ratio: 0.1
+
+notes: |
+  Embedding training requires paired data in format:
+    {"anchor": "text1", "positive": "similar_text"}
+  Or triplet: {"anchor": "...", "positive": "...", "negative": "..."}
+  The trained model produces 384-dim vectors for semantic search.
+  Use with cosine similarity for nearest-neighbor retrieval.

@@ -1,5 +1,22 @@
 /* Orracle — shared JS utilities */
 
+// Toast notifications (used across all pages)
+function showToast(message, type, duration) {
+    type = type || 'info';
+    duration = duration || 3000;
+    var container = document.getElementById('toast-container');
+    if (!container) return;
+    var toast = document.createElement('div');
+    toast.className = 'toast ' + type;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(function() {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s';
+        setTimeout(function() { toast.remove(); }, 300);
+    }, duration);
+}
+
 // Collapsible sections
 function toggleCollapsible(el) {
     el.classList.toggle('open');

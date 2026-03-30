@@ -17,6 +17,7 @@ ollama_hosts:
 # These map friendly names to specific model+host+params combos
 profiles:
   orrvert-fast:
+    visibility: private
     description: orrvert 7B Q4 with 8k context — fast inference
     host: 100.124.189.67
     model: orrvert:latest
@@ -27,6 +28,7 @@ profiles:
       repeat_penalty: 1.1
 
   orrvert-long:
+    visibility: private
     description: orrvert 7B Q4 with 32k context — long connected outputs
     host: 100.124.189.67
     model: orrvert:latest
@@ -37,6 +39,7 @@ profiles:
       repeat_penalty: 1.05
 
   orrvert-creative:
+    visibility: private
     description: orrvert 7B with high temperature for creative writing
     host: 100.124.189.67
     model: orrvert:latest

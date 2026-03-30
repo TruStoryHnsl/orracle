@@ -1,0 +1,96 @@
+{% extends "studio/layout.html" %}
+{% block title %}Text — Orracle{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/studio.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="chat-layout">
+    {# ─── Header: model selector + controls ─── #}
+    <div class="chat-header">
+        <select id="model-select">
+            {% if not models %}
+            <option disabled selected>No models available</option>
+            {% endif %}
+            {% for m in models %}
+            <option data-name="{{ m.name }}" data-host="{{ m.host or '' }}"
+                    value="{{ m.source|default('local') }}::{{ m.name }}">
+                {% if m.source and m.source != 'local' %}{{ m.source }}/{% endif %}{{ m.name }}
+                {% if m.params %} ({{ m.params }}){% endif %}
+            </option>
+            {% endfor %}
+        </select>
+
+        {% if profiles %}
+        <div class="flex gap-xs flex-wrap">
+            {% for name, p in profiles.items() %}
+            <button class="btn btn-sm btn-ghost" onclick="applyProfile('{{ name }}', '{{ p.model }}', '{{ p.host|default('') }}')">{{ name }}</button>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="btn-group" style="margin-left:auto">
+            <button class="btn btn-sm" onclick="clearChat()">Clear</button>
+            <button class="btn btn-sm btn-danger" id="stop-btn" onclick="stopGeneration()" disabled>Stop</button>
+        </div>
+    </div>
+
+    {# ─── Messages ─── #}
+    <div class="chat-messages" id="chat-messages">
+        <div class="msg msg-assistant" style="color:var(--text-muted);background:none;border:none">
+            Start a conversation.
+        </div>
+    </div>
+
+    {# ─── Stats ─── #}
+    <div class="chat-stats" id="chat-stats"></div>
+
+    {# ─── Input area ─── #}
+    <div class="chat-input-area">
+        <div class="chat-params">
+            <div class="chat-param">
+                <span>temp</span>
+                <input type="range" id="param-temp" min="0" max="2" step="0.05" value="0.8">
+                <span class="chat-param-val" id="param-temp-v">0.8</span>
+            </div>
+            <div class="chat-param">
+                <span>top_p</span>
+                <input type="range" id="param-topp" min="0" max="1" step="0.01" value="0.9">
+                <span class="chat-param-val" id="param-topp-v">0.9</span>
+            </div>
+            <div class="chat-param">
+                <span>ctx</span>
+                <input type="number" id="param-ctx" value="4096" min="512" max="32768" step="512">
+            </div>
+            <button class="btn btn-sm btn-ghost" onclick="document.getElementById('system-area').classList.toggle('hidden')">system</button>
+        </div>
+
+        <div id="system-area" class="system-prompt-area hidden">
+            <textarea id="system-prompt" placeholder="System prompt (optional)"></textarea>
+        </div>
+
+        <div class="chat-input-row">
+            <textarea id="chat-input" placeholder="Type a message..." onkeydown="handleKey(event)"></textarea>
+            <button class="btn btn-primary" id="send-btn" onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function applyProfile(name, model, host) {
+    const sel = document.getElementById('model-select');
+    for (let i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].dataset.name === model) {
+            sel.selectedIndex = i;
+            showToast('Profile: ' + name, 'success', 1500);
+            return;
+        }
+    }
+    showToast('Model ' + model + ' not found', 'error');
+}
+</script>
+<script src="{{ url_for('static', filename='js/studio/text-gen.js') }}"></script>
+{% endblock %}

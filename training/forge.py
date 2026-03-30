@@ -465,6 +465,15 @@ def _run_pass(config: dict):
                     c['image_filename'] = images[0]['filename']
                     c['image_subfolder'] = images[0].get('subfolder', '')
                     c['status'] = 'done'
+                    # Claim output: download locally, delete from ComfyUI
+                    img_bytes = comfyui.fetch_image(url, c['image_filename'],
+                                                    c['image_subfolder'])
+                    if img_bytes:
+                        comfyui.save_output(c['image_filename'], img_bytes)
+                    try:
+                        comfyui.delete_files(url, [c['image_filename']])
+                    except Exception:
+                        pass  # best-effort cleanup
                 else:
                     still_pending.append(c)
             else:

@@ -1,0 +1,206 @@
+jobs:
+  696c2fdd-318:
+    id: 696c2fdd-318
+    category: train
+    params:
+      config_file: lora_config.yaml
+      venv: venv_mlx
+      name: orrvert-marathon-50k
+    status: cancelled
+    priority: 3
+    machine: ''
+    machine_affinity: orrpheus
+    submitted: 1774582618.4233508
+    started: 0
+    finished: 1774582618.457495
+    progress: 0
+    progress_msg: ''
+    error: ''
+    result: {}
+    retries: 0
+    throttle: true
+    remote_pid: 0
+    session_name: ''
+  e6683ace-7d7:
+    id: e6683ace-7d7
+    category: train
+    params:
+      config_file: lora_config.yaml
+      iters: 50000
+      name: orrvert-marathon-50k
+    status: waiting
+    priority: 3
+    machine: ''
+    machine_affinity: orrpheus
+    submitted: 1774582625.4332347
+    started: 0
+    finished: 0
+    progress: 0
+    progress_msg: ''
+    error: ''
+    result: {}
+    retries: 0
+    throttle: true
+    remote_pid: 0
+    session_name: ''
+  febd4d24-cd3:
+    id: febd4d24-cd3
+    category: train
+    params:
+      name: test
+    status: waiting
+    priority: 3
+    machine: ''
+    machine_affinity: ''
+    submitted: 1774582746.2106159
+    started: 0
+    finished: 0
+    progress: 0
+    progress_msg: ''
+    error: ''
+    result: {}
+    retries: 0
+    throttle: false
+    remote_pid: 0
+    session_name: ''
+  2a5119da-87b:
+    id: 2a5119da-87b
+    category: gen_image
+    params: &id002
+      workflow:
+        '1':
+          class_type: CheckpointLoaderSimple
+          inputs:
+            ckpt_name: v1-5-pruned-emaonly.safetensors
+        '2':
+          class_type: CLIPTextEncode
+          inputs:
+            text: a sunset over the ocean
+            clip: &id001
+            - '1'
+            - 1
+        '3':
+          class_type: CLIPTextEncode
+          inputs:
+            text: ''
+            clip: *id001
+        '4':
+          class_type: EmptyLatentImage
+          inputs:
+            width: 512
+            height: 512
+            batch_size: 1
+        '5':
+          class_type: KSampler
+          inputs:
+            model:
+            - '1'
+            - 0
+            positive:
+            - '2'
+            - 0
+            negative:
+            - '3'
+            - 0
+            latent_image:
+            - '4'
+            - 0
+            seed: 2883471370
+            steps: 8
+            cfg: 5.0
+            sampler_name: euler_ancestral
+            scheduler: normal
+            denoise: 1.0
+        '6':
+          class_type: VAEDecode
+          inputs:
+            samples:
+            - '5'
+            - 0
+            vae:
+            - '1'
+            - 2
+        '7':
+          class_type: SaveImage
+          inputs:
+            images:
+            - '6'
+            - 0
+            filename_prefix: orracle_api
+      comfyui_url: http://192.168.1.152:8188
+      profile: fast
+      prompt: a sunset over the ocean
+      batch_size: 1
+      source: api
+    status: failed
+    priority: 2
+    machine: orrion
+    machine_affinity: ''
+    submitted: 1774676357.589597
+    started: 1774676359.1999948
+    finished: 1774676359.2225244
+    progress: 0
+    progress_msg: ''
+    error: Failed to queue ComfyUI prompt
+    result: {}
+    retries: 0
+    throttle: false
+    remote_pid: 0
+    session_name: ''
+  0468453b-65e:
+    id: 0468453b-65e
+    category: gen_image
+    params: *id002
+    status: failed
+    priority: 2
+    machine: orrion
+    machine_affinity: ''
+    submitted: 1774676359.22764
+    started: 1774676361.2052186
+    finished: 1774676361.2127287
+    progress: 0
+    progress_msg: ''
+    error: Failed to queue ComfyUI prompt
+    result: {}
+    retries: 1
+    throttle: false
+    remote_pid: 0
+    session_name: ''
+  49376478-6ee:
+    id: 49376478-6ee
+    category: gen_image
+    params: *id002
+    status: failed
+    priority: 2
+    machine: orrion
+    machine_affinity: ''
+    submitted: 1774676361.2290602
+    started: 1774676363.2106848
+    finished: 1774676363.2184095
+    progress: 0
+    progress_msg: ''
+    error: Failed to queue ComfyUI prompt
+    result: {}
+    retries: 2
+    throttle: false
+    remote_pid: 0
+    session_name: ''
+  77041fbc-edf:
+    id: 77041fbc-edf
+    category: gen_image
+    params: *id002
+    status: failed
+    priority: 2
+    machine: orrion
+    machine_affinity: ''
+    submitted: 1774676363.236156
+    started: 1774676365.2170184
+    finished: 1774676365.2249503
+    progress: 0
+    progress_msg: ''
+    error: Failed to queue ComfyUI prompt
+    result: {}
+    retries: 3
+    throttle: false
+    remote_pid: 0
+    session_name: ''

@@ -1,0 +1,259 @@
+{% extends "workshop/layout.html" %}
+{% block title %}Audit — Orracle{% endblock %}
+
+{% block head %}
+<style>
+.audit-layout { display: grid; grid-template-columns: 300px 1fr; gap: var(--space-2xl); min-height: 60vh; }
+.audit-sidebar { display: flex; flex-direction: column; gap: var(--space-lg); }
+.audit-results { display: flex; flex-direction: column; gap: var(--space-lg); }
+
+.audit-summary { display: flex; gap: var(--space-lg); flex-wrap: wrap; }
+.audit-summary .card-stat { flex: 1; min-width: 120px; }
+
+.result-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-xs); }
+.result-table th { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.1em; color: var(--outline); text-align: left; padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--outline-variant); }
+.result-table td { padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--surface-container-high); vertical-align: top; }
+.result-table tr:hover { background: var(--surface-container-low); }
+
+.response-preview { max-width: 400px; max-height: 80px; overflow: hidden; text-overflow: ellipsis; color: var(--on-surface-variant); font-size: var(--font-size-xs); cursor: pointer; }
+.response-preview:hover { max-height: none; overflow: visible; }
+
+.cat-checks { display: flex; flex-direction: column; gap: var(--space-sm); }
+.cat-check { display: flex; align-items: center; gap: var(--space-sm); font-size: var(--font-size-sm); cursor: pointer; }
+.cat-check input[type="checkbox"] { width: auto; box-shadow: none; accent-color: var(--primary); flex-shrink: 0; }
+.cat-count { color: var(--outline); font-family: var(--font-mono); font-size: var(--font-size-xs); }
+
+.past-result { display: flex; justify-content: space-between; align-items: center; padding: var(--space-sm) 0; border-bottom: 1px solid var(--surface-container-high); font-size: var(--font-size-xs); }
+.past-result-model { font-family: var(--font-mono); color: var(--primary); }
+
+@media (max-width: 767px) { .audit-layout { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="audit-layout">
+    {# ═══ Sidebar: Controls ═══ #}
+    <div class="audit-sidebar">
+        <div class="form-group">
+            <label class="label-tech">Model</label>
+            <select id="audit-model">
+                {% for m in models %}
+                <option value="{{ m.name }}" data-host="{{ m.host or '' }}">{{ m.source }}::{{ m.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label class="label-tech">System Prompt <span class="text-muted">(optional)</span></label>
+            <textarea id="audit-system" rows="3" placeholder="Custom system prompt to test against..." class="text-sm"></textarea>
+        </div>
+
+        <div class="form-group">
+            <label class="label-tech">Categories</label>
+            <div class="cat-checks">
+                {% for cat in categories %}
+                <label class="cat-check">
+                    <input type="checkbox" value="{{ cat.id }}" checked>
+                    {{ cat.name }} <span class="cat-count">({{ cat.prompt_count }})</span>
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+
+        <button class="btn btn-primary" style="width:100%" id="audit-run-btn" onclick="runAudit()">Run Audit</button>
+
+        {% if past_results %}
+        <div class="form-group">
+            <label class="label-tech">Past Audits</label>
+            {% for r in past_results[:5] %}
+            <div class="past-result">
+                <span class="past-result-model">{{ r.model }}</span>
+                <span>{{ r.passed }}/{{ r.total }} pass</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    {# ═══ Results Area ═══ #}
+    <div class="audit-results">
+        <div class="section-header">
+            <h2 style="font-family: var(--font-headline); font-size: var(--font-size-lg); font-weight: 500">Results</h2>
+            <span class="text-sm text-muted" id="audit-status"></span>
+        </div>
+
+        {# Summary cards (hidden until results) #}
+        <div class="audit-summary" id="audit-summary" style="display:none">
+            <div class="card-stat tertiary">
+                <div class="stat-label">Passed</div>
+                <span class="stat-value" id="sum-passed">0</span>
+            </div>
+            <div class="card-stat" style="border-left-color:var(--error)">
+                <div class="stat-label">Failed</div>
+                <span class="stat-value" id="sum-failed">0</span>
+            </div>
+            <div class="card-stat outline">
+                <div class="stat-label">Total</div>
+                <span class="stat-value" id="sum-total">0</span>
+            </div>
+        </div>
+
+        {# Results table #}
+        <div style="overflow-x:auto">
+            <table class="result-table" id="result-table">
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Prompt</th>
+                        <th>Status</th>
+                        <th>Flags</th>
+                        <th>Response</th>
+                    </tr>
+                </thead>
+                <tbody id="result-body"></tbody>
+            </table>
+        </div>
+
+        <div class="empty-state" id="audit-empty">Select a model and categories, then run the audit.</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var auditRunning = false;
+var totalPassed = 0;
+var totalFailed = 0;
+var totalCount = 0;
+
+async function runAudit() {
+    if (auditRunning) return;
+
+    var modelSel = document.getElementById('audit-model');
+    var model = modelSel.value;
+    var host = modelSel.options[modelSel.selectedIndex].dataset.host || '';
+    var system = document.getElementById('audit-system').value;
+
+    var cats = [];
+    document.querySelectorAll('.cat-check input:checked').forEach(function(cb) {
+        cats.push(cb.value);
+    });
+    if (cats.length === 0) {
+        showToast('Select at least one category', 'error');
+        return;
+    }
+
+    auditRunning = true;
+    totalPassed = 0;
+    totalFailed = 0;
+    totalCount = 0;
+
+    var btn = document.getElementById('audit-run-btn');
+    btn.disabled = true;
+    btn.textContent = 'Running...';
+    document.getElementById('audit-status').textContent = 'Starting...';
+    document.getElementById('audit-empty').style.display = 'none';
+    document.getElementById('audit-summary').style.display = 'flex';
+    document.getElementById('result-body').textContent = '';
+
+    try {
+        var r = await fetch('/workshop/audit/api/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: model, host: host, categories: cats, system_prompt: system }),
+        });
+        var data = await r.json();
+        if (data.error) {
+            showToast(data.error, 'error');
+            resetBtn();
+            return;
+        }
+
+        // Connect to SSE stream
+        var evtSource = new EventSource('/workshop/audit/api/stream/' + data.audit_id);
+        evtSource.onmessage = function(e) {
+            var msg = JSON.parse(e.data);
+            if (msg.type === 'result') {
+                addResult(msg);
+            } else if (msg.type === 'done') {
+                evtSource.close();
+                document.getElementById('audit-status').textContent =
+                    msg.passed + '/' + msg.total + ' passed';
+                showToast('Audit complete: ' + msg.passed + '/' + msg.total + ' passed',
+                          msg.failed > 0 ? 'warning' : 'success');
+                resetBtn();
+            } else if (msg.type === 'error') {
+                showToast('Audit error: ' + msg.error, 'error');
+                evtSource.close();
+                resetBtn();
+            }
+        };
+        evtSource.onerror = function() {
+            evtSource.close();
+            resetBtn();
+        };
+    } catch (e) {
+        showToast('Connection error', 'error');
+        resetBtn();
+    }
+}
+
+function resetBtn() {
+    auditRunning = false;
+    var btn = document.getElementById('audit-run-btn');
+    btn.disabled = false;
+    btn.textContent = 'Run Audit';
+}
+
+function addResult(r) {
+    totalCount++;
+    if (r.passed) totalPassed++;
+    else totalFailed++;
+
+    document.getElementById('sum-passed').textContent = totalPassed;
+    document.getElementById('sum-failed').textContent = totalFailed;
+    document.getElementById('sum-total').textContent = totalCount;
+    document.getElementById('audit-status').textContent = totalCount + ' tested...';
+
+    var row = document.createElement('tr');
+
+    var catCell = document.createElement('td');
+    catCell.textContent = r.category_name || r.category;
+
+    var promptCell = document.createElement('td');
+    var promptSpan = document.createElement('span');
+    promptSpan.className = 'font-mono';
+    promptSpan.textContent = r.prompt_id;
+    promptCell.appendChild(promptSpan);
+
+    var statusCell = document.createElement('td');
+    var badge = document.createElement('span');
+    badge.className = 'badge ' + (r.passed ? 'badge-completed' : 'badge-failed');
+    badge.textContent = r.passed ? 'PASS' : 'FAIL';
+    statusCell.appendChild(badge);
+
+    var flagCell = document.createElement('td');
+    if (r.flags && r.flags.length) {
+        flagCell.style.color = 'var(--error)';
+        flagCell.textContent = r.flags.join(', ');
+    } else if (r.refusals && r.refusals.length) {
+        flagCell.style.color = 'var(--tertiary)';
+        flagCell.textContent = r.refusals.slice(0, 2).join(', ');
+    }
+
+    var respCell = document.createElement('td');
+    var respDiv = document.createElement('div');
+    respDiv.className = 'response-preview';
+    respDiv.textContent = r.response || '';
+    respCell.appendChild(respDiv);
+
+    row.appendChild(catCell);
+    row.appendChild(promptCell);
+    row.appendChild(statusCell);
+    row.appendChild(flagCell);
+    row.appendChild(respCell);
+
+    document.getElementById('result-body').appendChild(row);
+}
+</script>
+{% endblock %}

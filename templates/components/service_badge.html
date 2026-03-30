@@ -1,0 +1,18 @@
+{# Service status badge — clickable when offline, shows tap-to-fix
+   Usage: {% include 'components/service_badge.html' with context %}
+   Expects: svc (dict with machine, name, type, status, start_cmd) #}
+
+<div class="card card-service" data-machine="{{ svc.machine }}" data-service="{{ svc.name }}"
+     {% if svc.status != 'online' and svc.start_cmd %}onclick="startService('{{ svc.machine }}', '{{ svc.name }}')"{% endif %}>
+    <div class="flex items-center justify-between">
+        <div class="flex items-center gap-sm">
+            <span class="status-dot {{ svc.status }}"></span>
+            <span class="text-sm">{{ svc.type }}</span>
+        </div>
+        <span class="badge badge-{{ svc.status }}">{{ svc.status }}</span>
+    </div>
+    <span class="text-xs text-muted">{{ svc.machine }}</span>
+    {% if svc.status == 'offline' and svc.start_cmd %}
+    <span class="text-xs text-accent">tap to start</span>
+    {% endif %}
+</div>

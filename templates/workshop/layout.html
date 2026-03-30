@@ -1,0 +1,10 @@
+{% extends "base_new.html" %}
+
+{% block subnav %}
+<div class="sub-nav">
+    <a href="/workshop/pipeline" class="sub-nav-link {% if '/workshop/pipeline' in request.path %}active{% endif %}">Pipeline</a>
+    <a href="/workshop/train" class="sub-nav-link {% if '/workshop/train' in request.path %}active{% endif %}">Train</a>
+    <a href="/workshop/export" class="sub-nav-link {% if '/workshop/export' in request.path %}active{% endif %}">Export</a>
+    <a href="/workshop/audit" class="sub-nav-link {% if '/workshop/audit' in request.path %}active{% endif %}">Audit</a>
+</div>
+{% endblock %}

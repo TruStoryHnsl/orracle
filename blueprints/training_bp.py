@@ -9,25 +9,9 @@ from flask import (Blueprint, Response, jsonify, redirect, render_template,
                    request, stream_with_context, url_for)
 
 from training import jobs, log_parser, remote
+from shared import load_machines as _load_machines
 
-training_bp = Blueprint('training', __name__, url_prefix='/training')
-
-
-# ---------------------------------------------------------------------------
-# Helpers (shared machine loading used by training routes)
-# ---------------------------------------------------------------------------
-
-def _load_machines() -> dict:
-    """Load machines config — delegates to the machines blueprint helper."""
-    import yaml
-    import os
-    config_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config')
-    try:
-        with open(os.path.join(config_dir, 'machines.yaml')) as f:
-            data = yaml.safe_load(f) or {}
-    except (FileNotFoundError, yaml.YAMLError):
-        data = {}
-    return data.get('machines', {})
+training_bp = Blueprint('training', __name__, url_prefix='/workshop/train')
 
 
 # ---------------------------------------------------------------------------

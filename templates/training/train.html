@@ -66,9 +66,13 @@
     <div class="form-row">
         <div class="form-group">
             <label>Training Type</label>
-            <select id="f-type" name="train_type">
+            <select id="f-type" name="train_type" onchange="checkTrainType(this)">
                 <option value="cpt">Continued Pre-Training (CPT)</option>
                 <option value="sft">Supervised Fine-Tuning (SFT)</option>
+                <option value="guardrail">Safety Guardrail Fine-Tune</option>
+                <option value="classification" disabled>Classification (planned)</option>
+                <option value="embedding" disabled>Embedding Fine-Tune (planned)</option>
+                <option value="reward_model" disabled>Reward Model (planned)</option>
             </select>
         </div>
         <div class="form-group">
@@ -184,6 +188,13 @@
 
 {% block scripts %}
 <script>
+function checkTrainType(sel) {
+    if (sel.options[sel.selectedIndex].disabled) {
+        showToast('This training type is planned but not yet implemented', 'info');
+        sel.value = 'sft';
+    }
+}
+
 const FRAMEWORK_MAP = {
     'mlx_lora': 'mlx-lm LoRA',
     'unsloth_qlora': 'Unsloth QLoRA',

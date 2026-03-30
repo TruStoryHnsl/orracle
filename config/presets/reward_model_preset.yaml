@@ -1,0 +1,20 @@
+# Reward model training preset (planned)
+# Trains a reward model for RLHF alignment.
+
+training_type: reward_model
+description: Train a reward model from human preference data
+
+suggested_params:
+  base_model: meta-llama/Llama-3-8b
+  epochs: 1
+  batch_size: 4
+  learning_rate: 1e-5
+  max_seq_length: 1024
+  lora_rank: 16
+
+notes: |
+  Reward model training requires preference pairs in format:
+    {"prompt": "...", "chosen": "preferred response", "rejected": "less preferred response"}
+  The model learns to score responses by preference.
+  Used as a reward signal for PPO/DPO alignment training.
+  Typically run after SFT but before deployment.

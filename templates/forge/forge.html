@@ -149,6 +149,9 @@
     background: var(--bg-tertiary);
     min-height: 150px;
 }
+.candidate-card.blurred img { filter: blur(20px); transition: filter 0.3s; }
+.candidate-card.blurred:hover img { filter: blur(8px); }
+.candidate-card.blurred.revealed img { filter: none; }
 
 /* Ternary controls */
 .candidate-controls {
@@ -429,6 +432,10 @@
                         </select>
                     </div>
                     <button class="btn btn-sm btn-primary" id="btn-generate" onclick="generatePass()">Generate Pass</button>
+                    <label style="display:flex;align-items:center;gap:0.4rem;margin-left:auto;font-size:0.75rem;cursor:pointer;color:var(--text-muted);">
+                        Blur
+                        <input type="checkbox" id="forge-blur-toggle" onchange="toggleForgeBlur(this.checked)">
+                    </label>
                 </div>
 
                 <!-- Weight region display -->
@@ -529,6 +536,21 @@ let currentTier = 'sweep';
 let currentPassNum = null;
 let candidateLabels = {};
 const comfyuiUrl = '{{ comfyui_url }}';
+let forgeBlurEnabled = localStorage.getItem('orracle-content-blur') !== 'false';
+
+// Content blur toggle (shared with image gen page via localStorage key)
+function toggleForgeBlur(enabled) {
+    forgeBlurEnabled = enabled;
+    localStorage.setItem('orracle-content-blur', enabled ? 'true' : 'false');
+    document.querySelectorAll('.candidate-card').forEach(function(c) {
+        c.classList.toggle('blurred', enabled);
+    });
+}
+// Init blur state
+document.addEventListener('DOMContentLoaded', function() {
+    var toggle = document.getElementById('forge-blur-toggle');
+    if (toggle) toggle.checked = forgeBlurEnabled;
+});
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -918,6 +940,7 @@ function renderGenGrid(candidates) {
 
     for (const c of candidates) {
         const card = makeEl('div', 'candidate-card');
+        if (forgeBlurEnabled) card.classList.add('blurred');
 
         if (c.status === 'done' && c.image_filename) {
             const img = document.createElement('img');
@@ -993,6 +1016,7 @@ function renderLabelGrid(candidates) {
 
         const card = makeEl('div', 'candidate-card');
         card.id = 'card-' + c.id;
+        if (forgeBlurEnabled) card.classList.add('blurred');
 
         const img = document.createElement('img');
         img.src = '/api/forge/image/' + currentProject.id + '/' + currentPassNum + '/' + c.id;

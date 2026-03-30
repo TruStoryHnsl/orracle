@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .env
 output/
+outputs/
 config/pipelines/
 config/projects/
 config/job_*.yaml

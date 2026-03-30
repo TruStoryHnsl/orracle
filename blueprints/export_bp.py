@@ -9,23 +9,10 @@ from flask import Blueprint, Response, jsonify, render_template, request
 
 from training import jobs, remote
 from training import export_mgr as export
+from training.generate import load_model_registry
+from shared import load_machines as _load_machines, CONFIG_DIR
 
-export_bp = Blueprint('export', __name__, url_prefix='/export')
-
-CONFIG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config')
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _load_machines() -> dict:
-    try:
-        with open(os.path.join(CONFIG_DIR, 'machines.yaml')) as f:
-            data = yaml.safe_load(f) or {}
-    except (FileNotFoundError, yaml.YAMLError):
-        data = {}
-    return data.get('machines', {})
+export_bp = Blueprint('export', __name__, url_prefix='/workshop/export')
 
 
 # ---------------------------------------------------------------------------
@@ -54,13 +41,19 @@ def index():
                 'adapter_path': f"adapters_{jid}",
             })
 
+    # Model visibility from registry
+    registry = load_model_registry()
+    model_visibility = {name: p.get('visibility', 'private')
+                        for name, p in registry.get('profiles', {}).items()}
+
     return render_template('export/export.html',
                            adapters=adapters,
                            gguf_files=gguf_files,
                            chat_templates=templates,
                            export_tasks=tasks,
                            machines=machines,
-                           remote_adapters=remote_adapters)
+                           remote_adapters=remote_adapters,
+                           model_visibility=model_visibility)
 
 
 @export_bp.route('/models')

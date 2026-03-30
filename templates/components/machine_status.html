@@ -1,0 +1,21 @@
+{# Machine status card — shows machine health + services
+   Usage: {% include 'components/machine_status.html' with context %}
+   Expects: machine (dict with name, description, services list) #}
+
+<div class="card card-machine">
+    <div class="card-header">
+        <div class="flex items-center gap-sm">
+            <span class="status-dot {{ 'online' if machine.any_online else 'offline' }}"></span>
+            <span class="card-title">{{ machine.name }}</span>
+        </div>
+        <span class="text-xs text-muted">{{ machine.description or '' }}</span>
+    </div>
+
+    <div class="flex flex-wrap gap-xs mt-sm">
+        {% for svc in machine.services %}
+        <span class="badge badge-{{ svc.status }}" title="{{ svc.name }}">
+            {{ svc.type }} {{ svc.status }}
+        </span>
+        {% endfor %}
+    </div>
+</div>

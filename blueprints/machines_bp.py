@@ -3,56 +3,21 @@
 from __future__ import annotations
 
 import json
-import os
-import threading
 import time
 
-import yaml
 from flask import (Blueprint, Response, jsonify, render_template, request,
                    stream_with_context)
 
 from training import hardware, log_parser, remote
 from training import export_mgr as export
+from shared import (load_machines as _load_machines, save_machines as _save_machines_shared,
+                    get_local_hardware as _get_local_hardware, refresh_hardware, CONFIG_DIR)
 
 machines_bp = Blueprint('machines', __name__, url_prefix='/machines')
 
-CONFIG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config')
-
-# Cache local hardware (detected once at startup)
-_hw_cache: dict = {'data': None, 'ts': 0}
-_hw_lock = threading.Lock()
-HW_CACHE_TTL = 300  # 5 minutes
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _get_local_hardware() -> dict:
-    """Return cached local hardware info, refreshing after TTL."""
-    with _hw_lock:
-        if _hw_cache['data'] and time.time() - _hw_cache['ts'] < HW_CACHE_TTL:
-            return _hw_cache['data']
-        hw = hardware.detect_hardware()
-        _hw_cache['data'] = hw
-        _hw_cache['ts'] = time.time()
-        return hw
-
-
-def _load_machines() -> dict:
-    try:
-        with open(os.path.join(CONFIG_DIR, 'machines.yaml')) as f:
-            data = yaml.safe_load(f) or {}
-    except (FileNotFoundError, yaml.YAMLError):
-        data = {}
-    return data.get('machines', {})
-
 
 def _save_machines(machines: dict):
-    os.makedirs(CONFIG_DIR, exist_ok=True)
-    with open(os.path.join(CONFIG_DIR, 'machines.yaml'), 'w') as f:
-        yaml.dump({'machines': machines}, f, default_flow_style=False,
-                  sort_keys=False)
+    _save_machines_shared(machines)
 
 
 # ---------------------------------------------------------------------------

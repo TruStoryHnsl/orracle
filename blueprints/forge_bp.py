@@ -6,7 +6,7 @@ from flask import Blueprint, Response, jsonify, render_template, request
 
 from training import comfyui, forge
 
-forge_bp = Blueprint('forge', __name__, url_prefix='/forge')
+forge_bp = Blueprint('forge', __name__, url_prefix='/studio/forge')
 
 
 # ---------------------------------------------------------------------------

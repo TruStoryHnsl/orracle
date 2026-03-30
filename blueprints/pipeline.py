@@ -17,7 +17,7 @@ from executor.runner import PipelineRunner
 from executor.preview import PreviewCache, generate_diff, compute_stats
 from executor import remote as remote_executor
 
-pipeline_bp = Blueprint('pipeline', __name__, url_prefix='/pipeline')
+pipeline_bp = Blueprint('pipeline', __name__, url_prefix='/workshop/pipeline')
 
 CONFIG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config')
 PIPELINES_DIR = os.path.join(CONFIG_DIR, 'pipelines')

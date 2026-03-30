@@ -1,0 +1,9 @@
+{% extends "base_new.html" %}
+
+{% block subnav %}
+<div class="sub-nav">
+    <a href="/studio/text" class="sub-nav-link {% if '/studio/text' in request.path %}active{% endif %}">Text Gen</a>
+    <a href="/studio/image" class="sub-nav-link {% if '/studio/image' in request.path %}active{% endif %}">Image Gen</a>
+    <a href="/studio/forge" class="sub-nav-link {% if '/studio/forge' in request.path %}active{% endif %}">Forge</a>
+</div>
+{% endblock %}

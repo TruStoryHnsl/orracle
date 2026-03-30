@@ -462,6 +462,8 @@ document.addEventListener('keydown', e => {
 // --- Deploy pipeline ---
 let _deployPollId = null;
 
+var _modelVisibility = {{ model_visibility | tojson }};
+
 function startDeploy(e) {
     e.preventDefault();
     const sel = document.getElementById('deploy-adapter');
@@ -474,6 +476,15 @@ function startDeploy(e) {
     if (!adapter || !baseModel || !modelName) {
         showToast('All fields required', 'error');
         return;
+    }
+
+    // Visibility warning — all models default to private
+    var isPrivate = true;
+    Object.values(_modelVisibility).forEach(function(v) {
+        if (v === 'shared') isPrivate = false;
+    });
+    if (isPrivate && machine !== 'local') {
+        showToast('All models are marked private — verify before deploying to shared machines', 'warning', 5000);
     }
 
     const btn = document.getElementById('deploy-btn');

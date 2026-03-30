@@ -1,0 +1,151 @@
+/* Orracle — Workshop-specific styles (pipeline, training, export) */
+
+/* ─── Pipeline ─── */
+.source-row {
+    display: flex;
+    gap: var(--space-lg);
+    align-items: flex-end;
+}
+.source-input { flex: 1; }
+.source-stats { white-space: nowrap; }
+
+.stage-bar {
+    display: flex;
+    gap: var(--space-xs);
+    flex-wrap: wrap;
+    padding: var(--space-sm) 0;
+    margin-bottom: var(--space-sm);
+}
+.stage-btn {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    padding: var(--space-xs) var(--space-sm);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.stage-btn:hover { border-color: var(--text-muted); color: var(--text-primary); }
+.stage-btn.active { border-color: var(--accent); color: var(--accent); background: var(--bg-tertiary); }
+.stage-btn.changed { border-color: var(--warning); }
+.stage-delta {
+    display: inline-block;
+    margin-left: var(--space-xs);
+    font-size: var(--font-size-xs);
+    color: var(--warning);
+}
+
+.preview-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-sm);
+}
+.preview-pane {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    display: flex;
+    flex-direction: column;
+    max-height: 70vh;
+}
+.preview-pane-header {
+    display: flex;
+    justify-content: space-between;
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--border-color);
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+.preview-text {
+    padding: var(--space-md);
+    font-size: var(--font-size-sm);
+    line-height: 1.6;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    flex: 1;
+    color: var(--text-primary);
+    user-select: text;
+    cursor: text;
+}
+
+/* ─── Training monitor ─── */
+.monitor-grid {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: var(--space-lg);
+}
+.monitor-sidebar { display: flex; flex-direction: column; gap: var(--space-lg); }
+
+/* ─── Pipeline flow (export page) ─── */
+.pipeline-flow {
+    display: flex;
+    gap: 0;
+    align-items: flex-start;
+}
+.pipeline-step { flex: 1; min-width: 0; }
+.pipeline-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 1.2rem;
+    padding: 0 var(--space-xs);
+    margin-top: var(--space-2xl);
+}
+
+/* ─── Diff highlighting ─── */
+.diff-del {
+    color: var(--error);
+    background: var(--error-bg);
+    border-left: 2px solid var(--error);
+    padding-left: 4px;
+    margin-left: -6px;
+    cursor: default;
+}
+.diff-del:hover {
+    background: rgba(255, 107, 107, 0.25);
+    text-decoration: line-through;
+    text-decoration-color: var(--error);
+}
+
+/* ─── Selection FAB ─── */
+.selection-fab {
+    position: fixed;
+    z-index: var(--z-modal);
+    display: flex;
+    box-shadow: var(--shadow-lg);
+    border-radius: var(--radius-sm);
+}
+
+/* ─── Rule builder ─── */
+.rb-selected-preview {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: var(--space-sm) var(--space-md);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+    max-height: 120px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    color: var(--warning);
+}
+.rb-suggestion {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: var(--space-sm) var(--space-md);
+    margin-bottom: var(--space-sm);
+}
+
+/* ─── Mobile ─── */
+@media (max-width: 639px) {
+    .source-row { flex-direction: column; }
+    .preview-split { grid-template-columns: 1fr; }
+    .monitor-grid { grid-template-columns: 1fr; }
+    .pipeline-flow { flex-direction: column; }
+    .pipeline-arrow { transform: rotate(90deg); }
+}

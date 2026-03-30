@@ -45,8 +45,8 @@ SEED = 42
 MIN_CHARS = 500
 BATCH_SIZE = 200
 IO_WORKERS = 8    # parallel NAS reads (lower = less CPU contention)
-MAX_CHUNK_TOKENS = 7000     # Target chunk size (~28K chars)
-OVERLAP_TOKENS = 500        # Sliding window overlap for oversized chapters (~2K chars)
+MAX_CHUNK_TOKENS = 2048     # Match training max_seq_length — no truncation waste
+OVERLAP_TOKENS = 128        # ~6% overlap for context continuity at chunk boundaries
 CHAPTER_SEP = '\n\n---\n\n'
 
 
@@ -434,7 +434,36 @@ def log(msg):
     print(msg, flush=True)
 
 
+def parse_args():
+    import argparse
+    p = argparse.ArgumentParser(description='Run Nifty Archive training data pipeline')
+    p.add_argument('--max-chunk-tokens', type=int, default=MAX_CHUNK_TOKENS,
+                   help=f'Max tokens per chunk (default: {MAX_CHUNK_TOKENS}, should match training max_seq_length)')
+    p.add_argument('--overlap-tokens', type=int, default=OVERLAP_TOKENS,
+                   help=f'Sliding window overlap tokens (default: {OVERLAP_TOKENS})')
+    p.add_argument('--max-samples', type=int, default=0,
+                   help='Cap output to N randomly sampled chunks (0 = unlimited). '
+                        'Use 200000 for 16GB M1, 500000 for 32GB+ machines.')
+    p.add_argument('--batch-size', type=int, default=BATCH_SIZE,
+                   help=f'Stories per processing batch (default: {BATCH_SIZE})')
+    p.add_argument('--io-workers', type=int, default=IO_WORKERS,
+                   help=f'Parallel NAS read threads (default: {IO_WORKERS})')
+    p.add_argument('--output-dir', default=OUTPUT_DIR,
+                   help=f'Output directory (default: {OUTPUT_DIR})')
+    return p.parse_args()
+
+
 def main():
+    args = parse_args()
+
+    # Apply CLI overrides to globals used by chunk_story()
+    global MAX_CHUNK_TOKENS, OVERLAP_TOKENS, BATCH_SIZE, IO_WORKERS, OUTPUT_DIR
+    MAX_CHUNK_TOKENS = args.max_chunk_tokens
+    OVERLAP_TOKENS = args.overlap_tokens
+    BATCH_SIZE = args.batch_size
+    IO_WORKERS = args.io_workers
+    OUTPUT_DIR = args.output_dir
+
     start = time.time()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -610,7 +639,7 @@ def main():
             del read_results, processed
 
     # -----------------------------------------------------------------------
-    # Phase 3: Shuffle + train/val split from temp file
+    # Phase 3: Shuffle + sample cap + train/val split from temp file
     # -----------------------------------------------------------------------
     log(f'\nPhase 3: Split + export')
     log(f'  {total_passed:,} unique stories, {total_deduped:,} duplicates removed')
@@ -624,13 +653,26 @@ def main():
             line_offsets.append(offset)
             offset += len(line)
 
+    total_available = len(line_offsets)
+    log(f'  {total_available:,} chunks available')
+
     # Shuffle indices
     rng = random.Random(SEED)
-    indices = list(range(len(line_offsets)))
+    indices = list(range(total_available))
     rng.shuffle(indices)
+
+    # Apply sample cap if set
+    max_samples = args.max_samples
+    if max_samples > 0 and total_available > max_samples:
+        log(f'  Sample cap: keeping {max_samples:,} of {total_available:,} chunks '
+            f'({max_samples/total_available*100:.0f}% coverage)')
+        indices = indices[:max_samples]
+    else:
+        max_samples = total_available
 
     n_val = max(1, int(len(indices) * VAL_RATIO))
     val_indices = set(indices[:n_val])
+    train_indices = set(indices[n_val:])
 
     # Write train/val by reading lines from temp file
     train_path = os.path.join(OUTPUT_DIR, 'train.jsonl')
@@ -649,15 +691,15 @@ def main():
             line = line.rstrip('\n')
             if not line:
                 continue
-            text_len = len(line)  # approximate
             if i in val_indices:
                 val_f.write(line + '\n')
-                val_tokens += text_len // 4
+                val_tokens += len(line) // 4
                 val_count += 1
-            else:
+            elif i in train_indices:
                 train_f.write(line + '\n')
-                train_tokens += text_len // 4
+                train_tokens += len(line) // 4
                 train_count += 1
+            # else: sample-capped out — skip
 
     # Clean up temp
     os.remove(temp_jsonl)
@@ -665,6 +707,11 @@ def main():
     elapsed = time.time() - start
     train_size = os.path.getsize(train_path)
     val_size = os.path.getsize(val_path)
+
+    # Memory estimates for training
+    tokenized_gb = (train_count * MAX_CHUNK_TOKENS * 4) / (1024**3)
+    model_7b_4bit_gb = 3.5
+    overhead_gb = 2.0
 
     log(f'\n{"="*60}')
     log(f'PIPELINE COMPLETE')
@@ -676,12 +723,26 @@ def main():
     log(f'Quality passed:  {total_passed:,} (rejected {total_rejected:,})')
     log(f'Duplicates:      {total_deduped:,}')
     log(f'Chunking:        {total_stories_chunked:,} stories split into {total_chunks_written:,} chunks (max ~{MAX_CHUNK_TOKENS} tokens)')
+    if total_available > len(indices):
+        log(f'Sample cap:      {len(indices):,} of {total_available:,} chunks used ({len(indices)/total_available*100:.0f}%)')
     log(f'Train set:       {train_count:,} chunks ({train_size/(1024**2):.1f} MB, ~{train_tokens:,} tokens)')
-    log(f'Val set:         {val_count:,} stories ({val_size/(1024**2):.1f} MB, ~{val_tokens:,} tokens)')
+    log(f'Val set:         {val_count:,} chunks ({val_size/(1024**2):.1f} MB, ~{val_tokens:,} tokens)')
     log(f'Char reduction:  {total_original_chars:,} -> {total_final_chars:,} '
         f'({round((1-total_final_chars/max(1,total_original_chars))*100,1)}%)')
     log(f'Output:          {OUTPUT_DIR}/')
     log(f'Hashes in mem:   {len(seen_hashes):,} ({len(seen_hashes) * 32 / 1024:.0f} KB)')
+    log(f'\nMemory estimate (training):')
+    log(f'  Tokenized data:  ~{tokenized_gb:.1f} GB ({train_count:,} x {MAX_CHUNK_TOKENS} tokens)')
+    log(f'  7B model (4bit): ~{model_7b_4bit_gb:.1f} GB')
+    log(f'  Framework + OS:  ~{overhead_gb:.1f} GB')
+    total_est = tokenized_gb + model_7b_4bit_gb + overhead_gb
+    log(f'  Total estimate:  ~{total_est:.1f} GB')
+    if total_est > 14:
+        log(f'  WARNING: May exceed 16GB M1 — use --max-samples to reduce')
+    elif total_est > 10:
+        log(f'  TIGHT for 16GB M1 — consider --max-samples if kernel panics')
+    else:
+        log(f'  OK for 16GB M1')
     log(f'\nCategories:')
     for cat, count in sorted(category_counts.items(), key=lambda x: -x[1]):
         log(f'  {cat:20} {count:>6}')

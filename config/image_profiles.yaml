@@ -1,0 +1,50 @@
+profiles:
+  default:
+    checkpoint: v1-5-pruned-emaonly.safetensors
+    sampler: euler
+    scheduler: normal
+    steps: 20
+    cfg: 7.0
+    width: 1024
+    height: 1024
+    batch_size: 1
+    negative_prompt: ''
+    loras: []
+  quality:
+    checkpoint: v1-5-pruned-emaonly.safetensors
+    sampler: dpmpp_2m
+    scheduler: karras
+    steps: 30
+    cfg: 7.5
+    width: 1024
+    height: 1024
+    batch_size: 1
+    negative_prompt: low quality, blurry, deformed
+    loras: []
+  fast:
+    checkpoint: v1-5-pruned-emaonly.safetensors
+    sampler: euler_ancestral
+    scheduler: normal
+    steps: 8
+    cfg: 5.0
+    width: 512
+    height: 512
+    batch_size: 1
+    negative_prompt: ''
+    loras: []
+  logo-gen:
+    checkpoint: ponyRealism_V22.safetensors
+    sampler: euler
+    scheduler: normal
+    steps: 20
+    cfg: 7
+    width: 1024
+    height: 1024
+    batch_size: 4
+    clip_skip: 2
+    negative_prompt: 'score_1, score_2, score_3, score_4, score_5, score_6, 3D, realistic,
+      painting, full_frame, '
+    loras:
+    - name: LogoRedmondV2-Logo-LogoRedmAF.safetensors
+      model_strength: 1
+      clip_strength: 1

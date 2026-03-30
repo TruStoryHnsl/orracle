@@ -1,0 +1,34 @@
+{# Job card — shows job status, progress, actions
+   Usage: {% include 'components/job_card.html' with context %}
+   Expects: job (dict with id, category, status, progress, progress_msg, machine, error) #}
+
+<div class="card card-job {{ job.status }}" data-job-id="{{ job.id }}">
+    <div class="card-header">
+        <div>
+            <span class="card-title">{{ job.params.get('name', job.category) }}</span>
+            <span class="text-xs text-muted ml-sm">{{ job.machine or 'queued' }}</span>
+        </div>
+        <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
+    </div>
+
+    {% if job.status == 'running' %}
+    <div class="progress-bar">
+        <div class="fill" style="width: {{ (job.progress * 100)|round }}%"></div>
+    </div>
+    {% if job.progress_msg %}
+    <span class="text-xs text-secondary">{{ job.progress_msg }}</span>
+    {% endif %}
+    {% endif %}
+
+    {% if job.status == 'failed' and job.error %}
+    <span class="text-xs text-error">{{ job.error[:100] }}</span>
+    {% endif %}
+
+    <div class="card-actions">
+        {% if job.status == 'running' %}
+        <button class="btn btn-sm btn-danger" onclick="cancelJob('{{ job.id }}')">Stop</button>
+        {% elif job.status == 'failed' %}
+        <button class="btn btn-sm btn-primary" onclick="retryJob('{{ job.id }}')">Retry</button>
+        {% endif %}
+    </div>
+</div>

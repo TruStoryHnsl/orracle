@@ -10,11 +10,15 @@ No external dependencies — uses stdlib urllib.
 """
 
 import json
+import logging
 import random
 import time
 import urllib.request
 import urllib.error
+import uuid
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 COMFYUI_DEFAULT = 'http://localhost:8188'
 NAS_LORA_DIR = Path('/mnt/orrigins/comfyui/models/loras')
@@ -118,8 +122,85 @@ def get_history(url: str, prompt_id: str) -> dict | None:
     return _api_get(url, f'/history/{prompt_id}')
 
 
+def get_all_history(url: str = COMFYUI_DEFAULT) -> dict:
+    """Get full prompt history from ComfyUI."""
+    return _api_get(url, '/history') or {}
+
+
 def get_queue_status(url: str = COMFYUI_DEFAULT) -> dict:
     return _api_get(url, '/queue') or {}
+
+
+def get_orracle_queue(url: str = COMFYUI_DEFAULT) -> dict:
+    """Get ComfyUI queue and history filtered to orracle-originated jobs only.
+
+    Identifies orracle jobs by checking for 'orracle' in the SaveImage
+    filename_prefix of the workflow.
+
+    Returns:
+        {running: [...], pending: [...], completed: [...], counts: {...}}
+    """
+    result = {'running': [], 'pending': [], 'completed': [], 'counts': {}}
+
+    # Queue (running + pending)
+    queue = get_queue_status(url)
+    for entry in queue.get('queue_running', []):
+        info = _extract_queue_entry(entry)
+        if info and info['is_orracle']:
+            result['running'].append(info)
+    for entry in queue.get('queue_pending', []):
+        info = _extract_queue_entry(entry)
+        if info and info['is_orracle']:
+            result['pending'].append(info)
+
+    # Recent history (completed)
+    history = get_all_history(url)
+    for prompt_id, entry in list(history.items())[:50]:  # limit to 50 most recent
+        if _is_orracle_workflow(entry.get('prompt', [None, {}])[1] if isinstance(entry.get('prompt'), list) else {}):
+            images = extract_images(entry)
+            result['completed'].append({
+                'prompt_id': prompt_id,
+                'images': len(images),
+                'filenames': [img['filename'] for img in images[:4]],
+            })
+
+    result['counts'] = {
+        'running': len(result['running']),
+        'pending': len(result['pending']),
+        'completed': len(result['completed']),
+    }
+    return result
+
+
+def _extract_queue_entry(entry) -> dict | None:
+    """Extract info from a ComfyUI queue entry."""
+    try:
+        # Queue entries are tuples: (index, prompt_id, workflow, extra, ...)
+        if isinstance(entry, (list, tuple)) and len(entry) >= 3:
+            prompt_id = entry[1] if len(entry) > 1 else ''
+            workflow = entry[2] if len(entry) > 2 else {}
+        else:
+            return None
+        return {
+            'prompt_id': prompt_id,
+            'is_orracle': _is_orracle_workflow(workflow),
+        }
+    except (IndexError, TypeError):
+        return None
+
+
+def _is_orracle_workflow(workflow: dict) -> bool:
+    """Check if a workflow was sent by orracle (has orracle filename prefix)."""
+    if not isinstance(workflow, dict):
+        return False
+    for node in workflow.values():
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get('inputs', {})
+        prefix = inputs.get('filename_prefix', '')
+        if isinstance(prefix, str) and prefix.startswith('orracle'):
+            return True
+    return False
 
 
 def get_image_url(url: str, filename: str, subfolder: str = '',
@@ -151,7 +232,10 @@ def build_workflow(checkpoint: str, loras: list, prompt: str,
                    negative_prompt: str = '', seed: int = None,
                    steps: int = 20, cfg: float = 7.0,
                    width: int = 1024, height: int = 1024,
-                   sampler: str = 'euler', scheduler: str = 'normal') -> dict:
+                   sampler: str = 'euler', scheduler: str = 'normal',
+                   batch_size: int = 1,
+                   filename_prefix: str = 'orracle',
+                   clip_skip: int = 1) -> dict:
     """Build a ComfyUI API workflow with checkpoint + LoRAs.
 
     Args:
@@ -161,6 +245,9 @@ def build_workflow(checkpoint: str, loras: list, prompt: str,
         negative_prompt: Negative prompt text
         seed: Fixed seed (random if None)
         steps/cfg/width/height/sampler/scheduler: Generation params
+        batch_size: Number of images per ComfyUI batch (parallel in one pass)
+        filename_prefix: Prefix for saved image filenames
+        clip_skip: CLIP layers to skip (1=none, 2=standard for anime/pony)
 
     Returns:
         ComfyUI API format workflow dict (node_id -> node_spec)
@@ -201,6 +288,19 @@ def build_workflow(checkpoint: str, loras: list, prompt: str,
         clip_source = [lora_id, 1]
         node_id += 1
 
+    # CLIP Skip — insert CLIPSetLastLayer if clip_skip > 1
+    if clip_skip > 1:
+        clip_skip_id = str(node_id)
+        workflow[clip_skip_id] = {
+            'class_type': 'CLIPSetLastLayer',
+            'inputs': {
+                'stop_at_clip_layer': -clip_skip,
+                'clip': clip_source,
+            },
+        }
+        clip_source = [clip_skip_id, 0]
+        node_id += 1
+
     # Positive prompt
     pos_id = str(node_id)
     workflow[pos_id] = {
@@ -230,7 +330,7 @@ def build_workflow(checkpoint: str, loras: list, prompt: str,
         'inputs': {
             'width': width,
             'height': height,
-            'batch_size': 1,
+            'batch_size': batch_size,
         },
     }
     node_id += 1
@@ -271,7 +371,7 @@ def build_workflow(checkpoint: str, loras: list, prompt: str,
         'class_type': 'SaveImage',
         'inputs': {
             'images': [decode_id, 0],
-            'filename_prefix': 'orracle_compare',
+            'filename_prefix': filename_prefix,
         },
     }
 
@@ -319,13 +419,121 @@ def build_bake_workflow(checkpoint: str, lora: str,
 
 def poll_prompt_completion(url: str, prompt_id: str,
                            timeout: int = 600, interval: float = 2.0) -> dict | None:
-    """Poll ComfyUI history until a prompt completes. Returns history entry or None."""
+    """Poll ComfyUI history until a prompt completes. Returns history entry or None.
+
+    Fallback method — prefer stream_prompt() for real-time progress.
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
         history = get_history(url, prompt_id)
         if history and prompt_id in history:
             return history[prompt_id]
         time.sleep(interval)
+    return None
+
+
+def stream_prompt(url: str, workflow: dict, timeout: int = 600,
+                  on_progress=None) -> dict | None:
+    """Submit a workflow and stream progress via ComfyUI's WebSocket.
+
+    This is the preferred method over poll_prompt_completion — it gives
+    real-time node execution status and step-level progress.
+
+    Args:
+        url: ComfyUI base URL (http://host:port)
+        workflow: ComfyUI API workflow dict
+        timeout: Max seconds to wait for completion
+        on_progress: Optional callback(event_type: str, data: dict) for each event.
+            Event types: 'execution_start', 'executing', 'progress',
+                         'executed', 'execution_error', 'execution_complete'
+
+    Returns:
+        History entry dict on success, None on failure/timeout.
+    """
+    try:
+        import websocket
+    except ImportError:
+        log.warning('websocket-client not installed, falling back to polling')
+        prompt_id = queue_prompt(url, workflow)
+        if not prompt_id:
+            return None
+        return poll_prompt_completion(url, prompt_id, timeout)
+
+    client_id = str(uuid.uuid4())
+    ws_url = url.replace('http://', 'ws://').replace('https://', 'wss://')
+    ws_url = f'{ws_url}/ws?clientId={client_id}'
+
+    # Submit the prompt with our client_id so ComfyUI routes events to us
+    result = _api_post(url, '/prompt', {
+        'prompt': workflow,
+        'client_id': client_id,
+    })
+    if not result:
+        return None
+
+    prompt_id = result.get('prompt_id')
+    if not prompt_id:
+        return None
+
+    if on_progress:
+        on_progress('queued', {'prompt_id': prompt_id})
+
+    # Connect to WebSocket and stream events
+    ws = None
+    try:
+        ws = websocket.create_connection(ws_url, timeout=timeout)
+        deadline = time.time() + timeout
+
+        while time.time() < deadline:
+            ws.settimeout(max(1, deadline - time.time()))
+            try:
+                raw = ws.recv()
+            except websocket.WebSocketTimeoutException:
+                break
+
+            if not raw:
+                continue
+
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+
+            msg_type = msg.get('type', '')
+            msg_data = msg.get('data', {})
+
+            # Only process events for our prompt
+            if msg_data.get('prompt_id') and msg_data['prompt_id'] != prompt_id:
+                continue
+
+            if on_progress:
+                on_progress(msg_type, msg_data)
+
+            if msg_type == 'executing' and msg_data.get('node') is None:
+                # Execution complete — node=None signals all nodes done
+                break
+
+            if msg_type == 'execution_error':
+                log.error('ComfyUI execution error: %s',
+                          msg_data.get('exception_message', 'unknown'))
+                return None
+
+    except (OSError, websocket.WebSocketException) as e:
+        log.error('WebSocket error streaming prompt %s: %s', prompt_id, e)
+        # Fall back to polling for the result
+        return poll_prompt_completion(url, prompt_id,
+                                     timeout=max(30, int(deadline - time.time())))
+    finally:
+        if ws:
+            try:
+                ws.close()
+            except Exception:
+                pass
+
+    # Fetch the completed history entry
+    history = get_history(url, prompt_id)
+    if history and prompt_id in history:
+        return history[prompt_id]
     return None
 
 

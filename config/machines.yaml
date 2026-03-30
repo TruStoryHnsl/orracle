@@ -1,21 +1,45 @@
-# Machine registry for orracle-dev remote pipeline dispatch.
-# project_path: Syncthing-synced orracle-dev root on each machine.
-# vault_path: passed as ORRACLE_SOURCE to run_pipeline.py.
+# Machine registry for orracle remote dispatch and service management.
+# Each machine can define services (ComfyUI, Ollama, etc.) with start/stop commands.
 
 machines:
   orrion:
     host: 192.168.1.152
+    tailscale: 100.124.189.67
     user: corr
     vault_path: /mnt/vault/read/nifty/gay
     project_path: ~/projects/orracle-dev
     description: "CachyOS VM, RTX 3070"
+    services:
+      comfyui:
+        type: comfyui
+        url: http://192.168.1.152:8188
+        start_cmd: "tmux send-keys -t comfy 'cd ~/comfy/ComfyUI && python main.py --listen 0.0.0.0' Enter"
+        stop_cmd: "tmux send-keys -t comfy C-c"
+      ollama:
+        type: ollama
+        url: http://192.168.1.152:11434
+        start_cmd: "systemctl --user start ollama"
+        stop_cmd: "systemctl --user stop ollama"
 
   orrpheus:
-    host: 100.66.55.59
+    host: 192.168.1.132
+    tailscale: 100.66.55.59
     user: coltonorr
     vault_path: /Users/coltonorr/mnt/vault/read/nifty/gay
     project_path: /Users/coltonorr/projects/orracle-dev
-    description: "macOS M1 Pro (Tailscale)"
+    description: "macOS M1 Pro 16GB"
+    mac_address: ""
+    services:
+      comfyui:
+        type: comfyui
+        url: http://192.168.1.132:8188
+        start_cmd: "cd ~/ComfyUI && python main.py --listen 0.0.0.0 &"
+        stop_cmd: "pkill -f 'python main.py'"
+      ollama:
+        type: ollama
+        url: http://192.168.1.132:11434
+        start_cmd: "brew services start ollama"
+        stop_cmd: "brew services stop ollama"
 
   orrgate:
     host: 192.168.1.145
@@ -23,3 +47,10 @@ machines:
     vault_path: /mnt/vault/read/nifty/gay
     project_path: ~/projects/orracle-dev
     description: "Docker/services VM"
+    is_local: true
+    services:
+      ollama:
+        type: ollama
+        url: http://localhost:11434
+        start_cmd: "systemctl start ollama"
+        stop_cmd: "systemctl stop ollama"

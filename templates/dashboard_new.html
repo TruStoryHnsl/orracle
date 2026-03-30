@@ -1,0 +1,362 @@
+{% extends "base_new.html" %}
+{% block title %}Orracle{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+{% endblock %}
+
+{% block topbar_stats %}
+<span class="top-bar-stat">Nodes: <span class="value">{{ machines_status | length }}</span></span>
+<span class="top-bar-stat">Services: <span class="value">{{ services | selectattr('status', 'equalto', 'online') | list | length }}/{{ services | length }}</span></span>
+<span class="top-bar-stat">Jobs: <span class="value">{{ (legacy_active | length) + (active_jobs | length) }}</span></span>
+{% if ollama_models %}
+<span class="top-bar-stat">Models: <span class="value">{{ ollama_models | length }}</span></span>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div id="dashboard-root">
+
+    {# ─── Hero Stat Cards ─── #}
+    <div class="stat-row section">
+        <div class="card-stat">
+            <div class="stat-label">Active Nodes</div>
+            <div class="flex items-end gap-sm">
+                <span class="stat-value">{{ '%02d' | format(machines_status.values() | selectattr('any_online') | list | length) }}</span>
+                <span class="stat-unit">Live</span>
+            </div>
+        </div>
+        <div class="card-stat tertiary">
+            <div class="stat-label">Services Online</div>
+            <div class="flex items-end gap-sm">
+                <span class="stat-value">{{ services | selectattr('status', 'equalto', 'online') | list | length }}</span>
+                <span class="stat-unit">/ {{ services | length }}</span>
+            </div>
+        </div>
+        <div class="card-stat secondary">
+            <div class="stat-label">Ollama Models</div>
+            <div class="flex items-end gap-sm">
+                <span class="stat-value">{{ ollama_models | length }}</span>
+                <span class="stat-unit">Loaded</span>
+            </div>
+        </div>
+        <div class="card-stat outline">
+            <div class="stat-label">Queue Status</div>
+            <div class="flex items-end gap-sm">
+                <span class="stat-value" id="queue-counts">{{ queue_counts.get('running', 0) }}</span>
+                <span class="stat-unit">Active</span>
+            </div>
+        </div>
+    </div>
+
+    {# ─── Node Network (Machine Cards) ─── #}
+    <div class="machine-bar section">
+        {% for name, m in machines_status.items() %}
+        <div class="card-node {% if m.all_online %}{% elif m.any_online %}heavy-load{% elif not m.any_online %}idle{% endif %}">
+            <div style="padding: var(--space-xl)">
+                <div class="flex justify-between items-start mb-lg">
+                    <div>
+                        <h3>{{ name }}</h3>
+                        <span class="label-tech {% if m.all_online %}text-tertiary{% elif m.any_online %}text-primary-color{% else %}text-muted{% endif %}">
+                            Status: {% if m.all_online %}Operational{% elif m.any_online %}Partial{% else %}Offline{% endif %}
+                        </span>
+                    </div>
+                    <span class="status-dot {{ 'online' if m.all_online else 'starting' if m.any_online else 'offline' }}"></span>
+                </div>
+
+                <div class="label-tech mb-sm">{{ m.description }}</div>
+
+                {# Service badges #}
+                <div class="flex flex-wrap gap-sm mt-lg">
+                    {% for svc in m.services %}
+                    <span class="badge badge-{{ svc.status }}">{{ svc.type }}</span>
+                    {% endfor %}
+                </div>
+
+                {# Active job (recessed) #}
+                <div class="recessed mt-lg">
+                    <div class="label-tech mb-sm">Active Job</div>
+                    <span class="font-mono text-xs">
+                        {%- set machine_jobs = legacy_active | selectattr('machine', 'equalto', name) | list -%}
+                        {% if machine_jobs %}
+                            {{ machine_jobs[0].output_name or machine_jobs[0].id }}
+                        {% else %}
+                            <span class="text-muted" style="font-style:italic">Idle — Waiting for Task</span>
+                        {% endif %}
+                    </span>
+                </div>
+
+                {# Compute telemetry #}
+                {% set load = compute_loads.get(name, {}) %}
+                <div class="recessed mt-lg" data-machine-telemetry="{{ name }}">
+                    <div class="label-tech mb-sm">Compute</div>
+                    <div class="telemetry-row">
+                        <span class="telemetry-label">GPU</span>
+                        <div class="progress-bar telemetry-bar"><div class="fill" data-gpu-bar style="width:{{ load.get('gpu_util', 0) | round }}%"></div></div>
+                        <span class="telemetry-val" data-gpu-util>{{ '%.0f' | format(load.get('gpu_util', 0)) }}%</span>
+                    </div>
+                    <div class="telemetry-row">
+                        <span class="telemetry-label">VRAM</span>
+                        {% set vram_pct = (load.get('gpu_mem_used', 0) / load.get('gpu_mem_total', 1) * 100) if load.get('gpu_mem_total') else 0 %}
+                        <div class="progress-bar telemetry-bar"><div class="fill" data-vram-bar style="width:{{ vram_pct | round }}%"></div></div>
+                        <span class="telemetry-val" data-vram-util>{{ '%.0f' | format(load.get('gpu_mem_used', 0)) }}MB</span>
+                    </div>
+                    <div class="telemetry-row">
+                        <span class="telemetry-label">CPU</span>
+                        {% set cpu_pct = (load.get('cpu_load_1m', 0) / load.get('cpu_count', 1) * 100) if load.get('cpu_count') else 0 %}
+                        <div class="progress-bar telemetry-bar"><div class="fill" data-cpu-bar style="width:{{ [cpu_pct | round, 100] | min }}%"></div></div>
+                        <span class="telemetry-val" data-cpu-util>{{ '%.1f' | format(load.get('cpu_load_1m', 0)) }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+
+        {% if not machines_status %}
+        <div class="card">
+            <span class="text-muted">No machines configured — <a href="/machines">add machines</a></span>
+        </div>
+        {% endif %}
+    </div>
+
+    {# ─── Active Work + Queue Summary ─── #}
+    <div class="dashboard-main section">
+        <div class="dashboard-work">
+            <div class="section-header">
+                <h2>Active</h2>
+                <span class="text-sm text-muted" id="queue-counts">
+                    {% if queue_counts %}
+                    {{ queue_counts.get('running', 0) }} running / {{ queue_counts.get('pending', 0) }} pending
+                    {% else %}idle{% endif %}
+                </span>
+            </div>
+
+            <div id="active-jobs" class="flex flex-col gap-md">
+                {# Legacy training jobs (from existing system) #}
+                {% for job in legacy_active %}
+                <div class="card card-job running">
+                    <div class="card-header">
+                        <div>
+                            <span class="card-title">{{ job.output_name or job.id }}</span>
+                            <span class="text-xs text-muted">{{ job.framework }} on {{ job.machine }}</span>
+                        </div>
+                        <span class="badge badge-running">training</span>
+                    </div>
+                    {% if job._live %}
+                    <div class="progress-bar">
+                        <div class="fill" style="width:{{ (job._live.current_iter / job._live.total_iters * 100) | round(1) if job._live.total_iters else 0 }}%"></div>
+                    </div>
+                    <div class="flex justify-between text-xs text-secondary">
+                        <span>Iter {{ job._live.current_iter }}/{{ job._live.total_iters }}</span>
+                        {% if job._live.current_loss %}
+                        <span>Loss: {{ "%.4f" | format(job._live.current_loss) }}</span>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+
+                {# Queue jobs #}
+                {% for job in active_jobs %}
+                <div class="card card-job {{ job.status }}" data-job-id="{{ job.id }}">
+                    <div class="card-header">
+                        <div>
+                            <span class="card-title">{{ job.params.get('name', job.category) }}</span>
+                            <span class="text-xs text-muted">{{ job.machine or 'queued' }}</span>
+                        </div>
+                        <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
+                    </div>
+                    {% if job.status == 'running' %}
+                    <div class="progress-bar">
+                        <div class="fill" style="width:{{ (job.progress * 100) | round }}%"></div>
+                    </div>
+                    {% if job.progress_msg %}
+                    <span class="text-xs text-secondary">{{ job.progress_msg }}</span>
+                    {% endif %}
+                    {% endif %}
+                    <div class="card-actions">
+                        {% if job.status in ('running', 'suspended') %}
+                        <label class="throttle-toggle" title="Auto-throttle: pause when machine is busy, resume when idle">
+                            <span class="toggle">
+                                <input type="checkbox" {% if job.throttle %}checked{% endif %}
+                                       onchange="toggleThrottle('{{ job.id }}', this.checked)">
+                                <span class="toggle-track"></span>
+                            </span>
+                            <span class="text-xs text-muted">Throttle</span>
+                        </label>
+                        {% endif %}
+                        {% if job.status == 'running' %}
+                        <button class="btn btn-sm" onclick="suspendJob('{{ job.id }}')">Suspend</button>
+                        <button class="btn btn-sm btn-danger" onclick="cancelJob('{{ job.id }}')">Cancel</button>
+                        {% elif job.status == 'suspended' %}
+                        <button class="btn btn-sm btn-primary" onclick="resumeJob('{{ job.id }}')">Resume</button>
+                        <button class="btn btn-sm btn-danger" onclick="cancelJob('{{ job.id }}')">Cancel</button>
+                        {% elif job.status == 'pending' %}
+                        <button class="btn btn-sm btn-danger" onclick="cancelJob('{{ job.id }}')">Cancel</button>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+
+                {% if not legacy_active and not active_jobs %}
+                <div class="empty-state">No active jobs</div>
+                {% endif %}
+            </div>
+
+            {# ─── Waiting Jobs (pre-planned, one-tap start) ─── #}
+            {% if waiting_jobs %}
+            <div class="section-header mt-xl">
+                <h2>Waiting</h2>
+                <span class="text-sm text-muted">{{ waiting_jobs | length }} planned</span>
+            </div>
+            <div class="flex flex-col gap-md">
+                {% for job in waiting_jobs %}
+                <div class="card card-job" style="border-bottom-color: var(--outline); border-bottom-style: dashed" data-job-id="{{ job.id }}">
+                    <div class="card-header">
+                        <div>
+                            <span class="card-title">{{ job.params.get('name', job.category) }}</span>
+                            <span class="text-xs text-muted">{{ job.machine_affinity or 'auto' }}</span>
+                        </div>
+                        <span class="badge badge-pending">waiting</span>
+                    </div>
+                    <div class="card-actions">
+                        <label class="throttle-toggle" title="Auto-throttle: pause when machine is busy, resume when idle">
+                            <span class="toggle">
+                                <input type="checkbox" {% if job.throttle %}checked{% endif %}
+                                       onchange="toggleThrottle('{{ job.id }}', this.checked)">
+                                <span class="toggle-track"></span>
+                            </span>
+                            <span class="text-xs text-muted">Throttle</span>
+                        </label>
+                        <button class="btn btn-sm btn-primary" onclick="startWaitingJob('{{ job.id }}')">Start</button>
+                        <button class="btn btn-sm btn-danger" onclick="cancelJob('{{ job.id }}')">Remove</button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+
+        {# ─── Services Grid ─── #}
+        <div class="dashboard-services">
+            <div class="section-header">
+                <h2>Services</h2>
+            </div>
+            <div id="service-grid" class="grid grid-auto-sm">
+                {% for svc in services %}
+                <div class="card card-service" data-machine="{{ svc.machine }}" data-service="{{ svc.name }}"
+                     {% if svc.status != 'online' and svc.start_cmd %}onclick="startService('{{ svc.machine }}', '{{ svc.name }}')"{% endif %}
+                     {% if svc.status == 'online' and svc.stop_cmd %}onclick="stopService('{{ svc.machine }}', '{{ svc.name }}')"{% endif %}>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-sm">
+                            <span class="status-dot {{ svc.status }}"></span>
+                            <span class="text-sm">{{ svc.type }}</span>
+                        </div>
+                        <span class="badge badge-{{ svc.status }}">{{ svc.status }}</span>
+                    </div>
+                    <span class="text-xs text-muted">{{ svc.machine }}</span>
+                    {% if svc.status == 'offline' and svc.start_cmd %}
+                    <span class="text-xs text-accent">tap to start</span>
+                    {% elif svc.status == 'online' and svc.stop_cmd %}
+                    <span class="text-xs text-secondary">tap to stop</span>
+                    {% elif svc.status == 'starting' %}
+                    <span class="text-xs text-warning">starting...</span>
+                    {% endif %}
+                    {% if svc.meta and svc.status == 'online' %}
+                        {% if svc.meta.model_count is defined %}
+                        <span class="text-xs text-secondary">{{ svc.meta.model_count }} models</span>
+                        {% endif %}
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    {# ─── Quick Links ─── #}
+    <div class="dashboard-quick section">
+        <div class="grid grid-3">
+            <a href="/studio/text" class="card quick-link">
+                <h3>Text Generation</h3>
+                <span class="text-sm text-secondary">Chat with Ollama models</span>
+                {% if ollama_models %}
+                <span class="text-xs text-muted mt-sm">{{ ollama_models | length }} models available</span>
+                {% endif %}
+            </a>
+            <a href="/studio/image" class="card quick-link">
+                <h3>Image Generation</h3>
+                <span class="text-sm text-secondary">Generate with ComfyUI</span>
+            </a>
+            <a href="/workshop/train" class="card quick-link">
+                <h3>Train</h3>
+                <span class="text-sm text-secondary">Launch LoRA/QLoRA jobs</span>
+            </a>
+        </div>
+    </div>
+
+    {# ─── This Machine ─── #}
+    <div class="section">
+        <div class="collapsible-header" onclick="toggleCollapsible(this)">
+            <span>This Machine: {{ hw.hostname }}</span>
+            <span class="arrow">&#9654;</span>
+        </div>
+        <div class="collapsible-body">
+            <div class="card">
+                <div class="metric-row">
+                    <span class="metric-label">CPU</span>
+                    <span class="metric-value">{{ hw.cpu.model or hw.cpu.arch }} ({{ hw.cpu.cores }} cores)</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">RAM</span>
+                    <span class="metric-value">{{ ram_summary }}</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">GPU</span>
+                    <span class="metric-value">{{ gpu_summary }}</span>
+                </div>
+                <div class="mt-sm">
+                    {% for cap in hw.capabilities %}
+                    <span class="cap-tag available">{{ cap }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ─── Recent Activity ─── #}
+    {% if legacy_recent or recent_jobs %}
+    <div class="section">
+        <h2 class="mb-md">Recent</h2>
+        <div class="flex flex-col gap-sm">
+            {% for job in legacy_recent %}
+            <div class="card card-job {{ job.status }}">
+                <div class="flex justify-between items-center">
+                    <span>{{ job.output_name or job.id }}</span>
+                    <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
+                </div>
+                <span class="text-xs text-muted">{{ job.framework }} &mdash; {{ job.finished or job.started }}</span>
+            </div>
+            {% endfor %}
+            {% for job in recent_jobs %}
+            <div class="card card-job {{ job.status }}" data-job-id="{{ job.id }}">
+                <div class="flex justify-between items-center">
+                    <span>{{ job.params.get('name', job.category) }}</span>
+                    <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
+                </div>
+                {% if job.status == 'failed' and job.error %}
+                <span class="text-xs text-error">{{ job.error[:80] }}</span>
+                <button class="btn btn-sm mt-sm" onclick="retryJob('{{ job.id }}')">Retry</button>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+<script src="{{ url_for('static', filename='js/service-manager.js') }}"></script>
+{% endblock %}

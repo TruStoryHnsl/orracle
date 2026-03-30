@@ -1,0 +1,105 @@
+/* Orracle — Design tokens: Kinetic Forge aesthetic
+   Brutalist, high-density, precision-instrument feel.
+   "Carved from silicon" — no rounded corners, no border lines. */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+    /* ─── Surface Architecture (tonal depth, no lines) ─── */
+    --surface: #131313;
+    --surface-dim: #0e0e0e;
+    --surface-container-lowest: #0e0e0e;
+    --surface-container-low: #1c1b1b;
+    --surface-container: #201f1f;
+    --surface-container-high: #2a2a2a;
+    --surface-container-highest: #353534;
+    --surface-bright: #393939;
+
+    /* ─── Text ─── */
+    --on-surface: #e5e2e1;
+    --on-surface-variant: #c1c6d7;
+    --outline: #8b90a0;
+    --outline-variant: #414755;
+
+    /* ─── Primary: Cyan ─── */
+    --primary: #00daf3;
+    --primary-container: #009fb2;
+    --primary-dim: #004f58;
+    --on-primary: #00363d;
+
+    /* ─── Secondary: Blue ─── */
+    --secondary: #adc6ff;
+    --secondary-container: #4b8eff;
+
+    /* ─── Tertiary: Emerald ─── */
+    --tertiary: #48ddbc;
+    --tertiary-container: #00a388;
+    --on-tertiary: #00382d;
+
+    /* ─── Status ─── */
+    --error: #ffb4ab;
+    --error-container: #93000a;
+    --warning: #f0ad4e;
+    --success: #48ddbc;
+
+    /* ─── Legacy aliases (backward compat for existing templates) ─── */
+    --bg-primary: var(--surface);
+    --bg-secondary: var(--surface-container-low);
+    --bg-tertiary: var(--surface-container-high);
+    --bg-elevated: var(--surface-container-highest);
+    --text-primary: var(--on-surface);
+    --text-secondary: var(--on-surface-variant);
+    --text-muted: var(--outline);
+    --border-color: var(--outline-variant);
+    --border-hover: var(--outline);
+    --accent: var(--primary);
+    --accent-hover: #4de8ff;
+    --accent-dim: var(--primary-dim);
+    --accent-bg: rgba(0, 218, 243, 0.06);
+
+    /* ─── Typography ─── */
+    --font-headline: 'Space Grotesk', system-ui, sans-serif;
+    --font-body: 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Mono', 'Consolas', monospace;
+
+    --font-size-xs: 0.625rem;   /* 10px — technical labels */
+    --font-size-sm: 0.75rem;    /* 12px */
+    --font-size-base: 0.8125rem;/* 13px */
+    --font-size-md: 0.875rem;   /* 14px */
+    --font-size-lg: 1rem;       /* 16px */
+    --font-size-xl: 1.25rem;    /* 20px */
+    --font-size-2xl: 1.5rem;    /* 24px */
+    --font-size-3xl: 2rem;      /* 32px */
+
+    /* ─── Spacing ─── */
+    --space-xs: 0.25rem;
+    --space-sm: 0.5rem;
+    --space-md: 0.75rem;
+    --space-lg: 1rem;
+    --space-xl: 1.5rem;
+    --space-2xl: 2rem;
+    --space-3xl: 3rem;
+
+    /* ─── Layout ─── */
+    --content-max: 1600px;
+    --sidebar-width: 240px;
+    --radius-none: 0px;
+
+    /* ─── Z-index ─── */
+    --z-base: 1;
+    --z-sidebar: 40;
+    --z-topbar: 50;
+    --z-toast: 200;
+    --z-modal: 300;
+    --z-nav-mobile: 400;
+
+    /* ─── Transitions ─── */
+    --transition-fast: 0.15s ease;
+    --transition-base: 0.2s ease;
+
+    /* ─── Kinetic gradient ─── */
+    --kinetic-gradient: linear-gradient(90deg, #00daf3 0%, #009fb2 100%);
+
+    /* ─── Mobile ─── */
+    --bottom-nav-height: 56px;
+}

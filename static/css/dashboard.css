@@ -1,0 +1,101 @@
+/* Orracle — Dashboard: Kinetic Forge node network style */
+
+/* ─── Machine Bar (horizontal node cards) ─── */
+.machine-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: var(--space-lg);
+}
+
+.machine-bar .card-node {
+    padding: var(--space-xl);
+}
+.machine-bar .card-node h3 {
+    font-family: var(--font-headline);
+    font-size: var(--font-size-lg);
+    letter-spacing: -0.02em;
+    margin: 0;
+}
+
+/* ─── Dashboard main layout ─── */
+.dashboard-main {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2xl);
+}
+
+.dashboard-work { min-width: 0; }
+.dashboard-services { min-width: 0; }
+
+/* ─── Quick links ─── */
+.quick-link {
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    background: var(--surface-container-low);
+    padding: var(--space-xl);
+    border-left: 2px solid transparent;
+    transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+.quick-link:hover {
+    border-left-color: var(--primary);
+    background: var(--surface-container);
+    text-decoration: none;
+}
+.quick-link h3 {
+    margin: 0;
+    color: var(--primary);
+    font-size: var(--font-size-md);
+}
+
+/* ─── Stat cards row ─── */
+.stat-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--space-lg);
+}
+
+/* ─── Telemetry Bars (in machine cards) ─── */
+.telemetry-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-xs);
+}
+.telemetry-label {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    color: var(--outline);
+    min-width: 32px;
+}
+.telemetry-bar {
+    flex: 1;
+    height: 3px;
+    margin: 0;
+}
+.telemetry-val {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--primary);
+    min-width: 40px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ─── Throttle Toggle (inline with job card actions) ─── */
+.throttle-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    cursor: pointer;
+    margin-bottom: 0;
+}
+
+/* ─── Mobile ─── */
+@media (max-width: 767px) {
+    .machine-bar { grid-template-columns: 1fr; }
+    .dashboard-main { grid-template-columns: 1fr; }
+}
