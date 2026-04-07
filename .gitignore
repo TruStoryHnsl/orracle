@@ -10,3 +10,21 @@ config/projects/
 config/job_*.yaml
 *.pt
 models/
+
+# AI / workflow files (kept locally, not tracked)
+CLAUDE.md
+GEMINI.md
+agents.md
+AGENTS.md
+PLAN.md
+fb2p.md
+scratchpad.md
+TODO.md
+notes.md
+instructions_inbox.md
+.bugfix-ledger.md
+.bugfix-analysis.md
+.claude/
+.orrch/
+mempalace.yaml
+entities.json
