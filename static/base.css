@@ -11,13 +11,38 @@
     --text-secondary: #a0a0a0;
     --text-muted: #666666;
     --border-color: #3a3a3a;
-    --accent: #c084fc;         /* Purple — AI/training theme */
+    /* Orracle brand — reference tokens, see branding/BRAND.md.
+       Not aliased to --accent because the existing purple identity
+       is load-bearing across legacy screens. Use var(--brand-primary)
+       explicitly where the brand mark should appear. */
+    --brand-primary: #F8E898;    /* Oracle Gold */
+    --brand-highlight: #F8F898;  /* Candle Glow */
+    --brand-flame-mid: #884808;  /* Oracle Bronze */
+    --brand-flame-deep: #783808; /* Burnt Wick */
+    --accent: #c084fc;           /* Purple — AI/training theme */
     --accent-hover: #d4a0ff;
     --accent-dim: #7c3aed;
     --error: #ff6b6b;
     --success: #4ecdc4;
     --warning: #f0ad4e;
     --font-mono: 'Fira Mono', 'Droid Sans Mono', 'Consolas', 'Monaco', monospace;
+}
+
+/* Sidebar brand icon — holds the cropped logo PNG */
+.sidebar-icon--brand {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    padding: 0;
+}
+.sidebar-icon--brand img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

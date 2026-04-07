@@ -35,6 +35,20 @@ def create_app():
     from blueprints import register_blueprints
     register_blueprints(app)
 
+    # Inject a static_version derived from favicon.ico mtime so the
+    # browser fetches a fresh favicon whenever the file is regenerated.
+    # Chrome's favicon cache otherwise holds stale entries for hours
+    # behind openresty's max-age=4259 cache header.
+    _favicon = os.path.join(app.static_folder, 'favicon.ico')
+    try:
+        _static_version = str(int(os.path.getmtime(_favicon)))
+    except OSError:
+        _static_version = '1'
+
+    @app.context_processor
+    def inject_static_version():
+        return {'static_version': _static_version}
+
     return app
 
 

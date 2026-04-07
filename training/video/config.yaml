@@ -1,0 +1,33 @@
+# Key-moment detector — marathon training config
+#
+# Target: 55+ hour run on either orrion (RTX 3070, CUDA) or orrpheus (M1 Pro, MPS).
+# Stoppable at any time — rerun with --resume to pick up from last.pt.
+#
+# Estimated duration (rough):
+#   orrion (RTX 3070, batch 32): ~0.15 s/step  → 200K steps ≈ 8 hours
+#   orrpheus (M1 Pro, batch 32): ~0.70 s/step  → 200K steps ≈ 39 hours
+#   orrpheus with heavier augmentation / larger ROI: stretches to 55h+
+#
+# Bump max_steps higher once you've seen it converge on a short run.
+
+data_root: output/video_training
+ckpt_dir: output/video_training/ckpt
+
+# Schedule
+max_steps: 200000
+batch_size: 32
+num_workers: 4
+learning_rate: 1.0e-4
+weight_decay: 1.0e-4
+warmup_steps: 500
+grad_clip: 1.0
+
+# Checkpoint / validation cadence
+save_every: 500
+val_every: 500
+log_every: 20
+keep_last_n: 5
+
+# Misc
+seed: 42
+device: auto  # auto | cuda | mps | cpu

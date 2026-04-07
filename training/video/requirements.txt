@@ -1,0 +1,17 @@
+# Extra requirements for the video key-moment detector trainer.
+# Install into the orracle venv with:
+#
+#     orracle/venv/bin/pip install -r orracle/training/video/requirements.txt
+#
+# These are intentionally kept out of the main requirements.txt so that a
+# lightweight orracle web install (Flask workshop UI, pipeline orchestration)
+# does not pull in the full PyTorch / Pillow stack.
+#
+# On orrpheus (Apple Silicon) pip installs MPS-backed PyTorch automatically.
+# On orrion (RTX 3070) you may want a CUDA wheel — see pytorch.org for the
+# correct `--index-url` for your CUDA version.
+
+torch>=2.1
+numpy>=1.24
+pillow>=10.0
+pyyaml>=6.0

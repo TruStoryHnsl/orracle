@@ -21,6 +21,16 @@
     --outline: #8b90a0;
     --outline-variant: #414755;
 
+    /* ─── Brand (Orracle — see branding/BRAND.md).
+       Defined as reference tokens; the Kinetic Forge cyan primary below
+       remains the active UI color to avoid a stark theme flip. Use
+       var(--brand-primary) explicitly where the brand mark should show. */
+    --brand-primary: #F8E898;    /* Oracle Gold */
+    --brand-highlight: #F8F898;  /* Candle Glow */
+    --brand-flame-mid: #884808;  /* Oracle Bronze */
+    --brand-flame-deep: #783808; /* Burnt Wick */
+    --brand-surface: #F8F8A8;    /* Vision Cream */
+
     /* ─── Primary: Cyan ─── */
     --primary: #00daf3;
     --primary-container: #009fb2;

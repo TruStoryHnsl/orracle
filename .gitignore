@@ -1,4 +1,5 @@
 venv/
+.stfolder/
 __pycache__/
 *.pyc
 .env

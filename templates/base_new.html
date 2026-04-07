@@ -4,6 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>{% block title %}Orracle{% endblock %}</title>
+    {# Favicon bundle — real orracle logo, scaled via
+       branding/generate_favicons.py (gold glyphness detection +
+       alpha clamp + contrast boost before LANCZOS downsample).
+       ?v={{ static_version }} busts the openresty + browser favicon
+       cache whenever the favicon file is regenerated. #}
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}?v={{ static_version }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}?v={{ static_version }}">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='favicon-16.png') }}?v={{ static_version }}">
+    <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='apple-touch-icon.png') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/variables.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/reset.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
@@ -16,10 +25,8 @@
     <aside class="sidebar">
         <div class="sidebar-brand">
             <div class="sidebar-brand-row">
-                <div class="sidebar-icon">
-                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#00363d" stroke-width="2">
-                        <path d="M8 1L1 5l7 4 7-4-7-4z"/><path d="M1 11l7 4 7-4"/><path d="M1 8l7 4 7-4"/>
-                    </svg>
+                <div class="sidebar-icon sidebar-icon--brand">
+                    <img src="{{ url_for('static', filename='orracle_logo.png') }}" alt="" width="28" height="28">
                 </div>
                 <div>
                     <a href="/" class="sidebar-logo">Orracle</a>

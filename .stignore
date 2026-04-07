@@ -1,0 +1,29 @@
+# Syncthing ignore patterns for orracle folder share (orrion → orrgate)
+# Heavy/regeneratable state and machine-local artifacts.
+
+# Python venv (heavy, hardcoded paths, recreated per machine)
+venv/
+
+# Generated training data and runtime output (orrgate-only state)
+output/
+
+# Python bytecode caches
+__pycache__/
+*.pyc
+*.pyo
+
+# ML model weights (live only on orrgate, downloaded/copied separately)
+yolov8n-pose.pt
+models/pose_landmarker_lite.task
+
+# Development screenshots and design assets
+*.png
+*.zip
+
+# Editor / OS cruft
+.DS_Store
+*.swp
+*~
+
+# Local logs
+*.log
