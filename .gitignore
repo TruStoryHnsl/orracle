@@ -27,4 +27,5 @@ instructions_inbox.md
 .claude/
 .orrch/
 mempalace.yaml
+.mempalace-aliases
 entities.json
