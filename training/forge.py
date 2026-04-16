@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """LoRA Forge — Evolutionary model refinement engine.
 
 Manages projects with tree-structured development paths:

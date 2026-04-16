@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Cross-platform hardware detection for Orracle Trainer.
 
 Detects CPU, RAM, GPU (NVIDIA + Apple Silicon), ML frameworks,

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Training job lifecycle management.
 
 Handles: config generation, subprocess start/monitor/stop,

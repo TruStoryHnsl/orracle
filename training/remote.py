@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Remote machine management via SSH.
 
 Handles: SSH connectivity, remote hardware detection, remote training

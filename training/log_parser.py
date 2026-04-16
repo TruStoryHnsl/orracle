@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Parse training log output into structured metrics.
 
 Supports:

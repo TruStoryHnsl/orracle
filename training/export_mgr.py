@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Model export and Ollama management.
 
 Handles: Ollama model lifecycle, adapter scanning, GGUF file management,

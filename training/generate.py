@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Text generation via Ollama API.
 
 Proxies streaming chat/completion requests to Ollama instances.
