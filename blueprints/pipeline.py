@@ -328,6 +328,155 @@ def api_preview_sample():
 
 
 # ---------------------------------------------------------------------------
+# Pipeline execution — via job queue with SSE progress
+# ---------------------------------------------------------------------------
+
+@pipeline_bp.route('/api/run', methods=['POST'])
+def api_run_pipeline():
+    """Submit a pipeline execution job to the job queue.
+
+    Body:
+        pipeline_id: str   — load from config/pipelines/{id}.yaml
+        pipeline: dict     — inline serialised pipeline (alternative to id)
+        machine_affinity: str  — optional preferred machine
+
+    Returns:
+        {job_id: str, task_id: null}  — poll /api/run/<job_id>/status for progress
+    """
+    from flask import current_app
+    data = request.get_json() or {}
+    pipeline_id = data.get('pipeline_id', '')
+    pipeline_data = data.get('pipeline')
+    machine_affinity = data.get('machine_affinity', '')
+
+    if not pipeline_id and not pipeline_data:
+        return jsonify({'error': 'pipeline_id or pipeline required'}), 400
+
+    # Validate the pipeline before queueing
+    if pipeline_data:
+        try:
+            pipeline = Pipeline.from_dict(pipeline_data)
+        except Exception as e:
+            return jsonify({'error': f'Failed to parse pipeline: {e}'}), 400
+        errors = pipeline.validate()
+        if errors:
+            return jsonify({'error': 'Validation failed', 'errors': errors}), 400
+    elif pipeline_id:
+        pipeline_path = os.path.join(PIPELINES_DIR, f'{pipeline_id}.yaml')
+        if not os.path.exists(pipeline_path):
+            return jsonify({'error': f'Pipeline not found: {pipeline_id}'}), 404
+        try:
+            pipeline = Pipeline.load(pipeline_path)
+        except Exception as e:
+            return jsonify({'error': f'Failed to load pipeline: {e}'}), 400
+        errors = pipeline.validate()
+        if errors:
+            return jsonify({'error': 'Validation failed', 'errors': errors}), 400
+
+    queue = current_app.config.get('job_queue')
+    if not queue:
+        return jsonify({'error': 'Job queue not initialized'}), 500
+
+    params = {'pipeline_id': pipeline_id}
+    if pipeline_data:
+        params['pipeline'] = pipeline_data
+
+    job_id = queue.submit('pipeline', params,
+                          machine_affinity=machine_affinity)
+    return jsonify({'job_id': job_id, 'ok': True})
+
+
+@pipeline_bp.route('/api/run/<job_id>/status')
+def api_run_status(job_id):
+    """Poll job status for a pipeline execution job."""
+    from flask import current_app
+    queue = current_app.config.get('job_queue')
+    if not queue:
+        return jsonify({'error': 'Job queue not initialized'}), 500
+
+    job = queue.get(job_id)
+    if not job:
+        return jsonify({'error': 'Job not found'}), 404
+
+    return jsonify(job)
+
+
+@pipeline_bp.route('/api/run/<job_id>/stream')
+def api_run_stream(job_id):
+    """SSE stream of progress events for a pipeline execution job.
+
+    Yields: data: {event, job} JSON lines with pipeline_node_progress events
+            and job lifecycle events.
+    """
+    from flask import current_app
+    import json as _json
+
+    queue = current_app.config.get('job_queue')
+    if not queue:
+        return Response('data: {"error":"no queue"}\n\n', mimetype='text/event-stream')
+
+    def generate():
+        # Send initial job state
+        job = queue.get(job_id)
+        if not job:
+            yield f'data: {_json.dumps({"error": "job not found"})}\n\n'
+            return
+        yield f'data: {_json.dumps({"event": "job_state", "job": job})}\n\n'
+
+        # Track final states
+        terminal = {'completed', 'failed', 'cancelled'}
+        if job.get('status') in terminal:
+            yield f'data: {_json.dumps({"event": "done", "job": job})}\n\n'
+            return
+
+        # Subscribe to queue events via listener
+        import queue as _q
+        event_q = _q.Queue(maxsize=200)
+
+        def listener(event_type, job_dict):
+            if job_dict.get('id') == job_id:
+                try:
+                    event_q.put_nowait({'event': event_type, 'job': job_dict})
+                except _q.Full:
+                    pass
+
+        queue.add_listener(listener)
+        try:
+            deadline = time.time() + 3700  # slightly beyond the 1-hour job timeout
+            while time.time() < deadline:
+                try:
+                    ev = event_q.get(timeout=15)
+                    yield f'data: {_json.dumps(ev)}\n\n'
+                    if ev.get('event') in ('job_completed', 'job_failed',
+                                           'job_cancelled'):
+                        break
+                except _q.Empty:
+                    # Keepalive comment
+                    yield ': keepalive\n\n'
+                    # Re-check if job finished while we were sleeping
+                    current = queue.get(job_id)
+                    if current and current.get('status') in terminal:
+                        yield f'data: {_json.dumps({"event": "done", "job": current})}\n\n'
+                        break
+        finally:
+            queue.remove_listener(listener)
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@pipeline_bp.route('/api/run/<job_id>/cancel', methods=['POST'])
+def api_run_cancel(job_id):
+    """Cancel a running pipeline job."""
+    from flask import current_app
+    queue = current_app.config.get('job_queue')
+    if not queue:
+        return jsonify({'error': 'Job queue not initialized'}), 500
+    ok = queue.cancel(job_id)
+    return jsonify({'ok': ok})
+
+
+# ---------------------------------------------------------------------------
 # Pose Audit API
 # ---------------------------------------------------------------------------
 

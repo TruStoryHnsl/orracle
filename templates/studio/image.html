@@ -7,6 +7,18 @@
 
 {% block content %}
 <div class="image-gen-layout">
+    {# ═══ History Sidebar (right panel, collapsible) ═══ #}
+    <div class="ig-history-panel" id="history-panel">
+        <div class="ig-history-header">
+            <span class="label-tech">History</span>
+            <button class="btn-icon" onclick="clearHistory()" title="Clear history">&times;</button>
+        </div>
+        <div id="history-list" class="ig-history-list">
+            <div class="empty-state text-xs" id="history-empty">No history yet.</div>
+        </div>
+    </div>
+    <button class="ig-history-toggle" id="history-toggle" onclick="toggleHistoryPanel()" title="Toggle history">&#9776;</button>
+
     {# ═══ Left: Controls Panel ═══ #}
     <div class="image-gen-sidebar">
 
@@ -147,6 +159,36 @@
             </div>
         </div>
 
+        {# ── Sweep Mode ── #}
+        <label class="ig-toggle-row">
+            <span class="label-tech">Sweep Mode</span>
+            <span class="toggle">
+                <input type="checkbox" id="gen-sweep-enabled" onchange="toggleSweepMode(this.checked)">
+                <span class="toggle-track"></span>
+            </span>
+        </label>
+        <div class="ig-sweep-controls" id="sweep-controls" style="display:none">
+            <div class="ig-params-grid">
+                <div class="form-group">
+                    <label class="label-tech">Sweep Param</label>
+                    <select id="sweep-param">
+                        <option value="seed">Seed</option>
+                        <option value="cfg">CFG</option>
+                        <option value="steps">Steps</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="label-tech">Count</label>
+                    <input type="number" id="sweep-count" value="4" min="2" max="16">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="label-tech">Values <span class="text-muted text-xs">(comma-separated)</span></label>
+                <input type="text" id="sweep-values" placeholder="e.g. 42, 1337, 7654, 99999">
+            </div>
+            <p class="text-xs text-muted" style="margin-top: var(--space-sm)">Leave values blank for random seeds.</p>
+        </div>
+
         {# ── Generate + Reset ── #}
         <button class="btn btn-primary ig-generate-btn" id="generate-btn" onclick="generate()">
             Generate
@@ -185,6 +227,15 @@
 
         <div class="image-gallery" id="image-gallery">
             <div class="empty-state" id="gallery-empty">Generate an image to see it here.</div>
+        </div>
+
+        {# Sweep grid — shown inline below gallery when sweep results arrive #}
+        <div class="ig-sweep-grid" id="sweep-grid" style="display:none">
+            <div class="ig-sweep-grid-header">
+                <span class="label-tech" id="sweep-grid-label">Sweep Results</span>
+                <button class="btn-icon" onclick="closeSweepGrid()">&times;</button>
+            </div>
+            <div class="ig-sweep-grid-items" id="sweep-grid-items"></div>
         </div>
     </div>
 </div>
@@ -228,6 +279,8 @@ var allImages = [];
 var lightboxIndex = 0;
 var contentBlurEnabled = localStorage.getItem('orracle-content-blur') !== 'false';
 var ponyTagsEnabled = false;
+var sweepEnabled = false;
+var historyPanelOpen = localStorage.getItem('orracle-history-panel') !== 'false';
 var availableLoras = {{ loras | tojson }};
 
 var PONY_POS = 'score_9, score_8_up, score_7_up, ';
@@ -239,6 +292,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (toggle) toggle.checked = contentBlurEnabled;
     restoreFormState();
     wireAutoSave();
+    applyHistoryPanelState();
+    loadHistory();
 });
 
 function switchInstance(url) {
@@ -494,12 +549,7 @@ function toggleContentBlur(enabled) {
 }
 
 // ─── Generate ───
-async function generate() {
-    var btn = document.getElementById('generate-btn');
-    var statusEl = document.getElementById('gen-status');
-    btn.disabled = true;
-    btn.textContent = 'Generating...';
-
+function collectBaseParams() {
     var prompt = document.getElementById('gen-prompt').value;
     var negative = document.getElementById('gen-negative').value;
 
@@ -512,7 +562,7 @@ async function generate() {
     var seedVal = document.getElementById('gen-seed').value;
     var seed = seedVal === '' ? null : parseInt(seedVal);
 
-    var params = {
+    return {
         checkpoint: document.getElementById('gen-checkpoint').value,
         prompt: prompt,
         negative_prompt: negative,
@@ -527,7 +577,17 @@ async function generate() {
         batch_size: parseInt(document.getElementById('gen-batch-size').value),
         loras: collectLoras(),
     };
+}
 
+async function generate() {
+    if (sweepEnabled) { await generateSweep(); return; }
+
+    var btn = document.getElementById('generate-btn');
+    var statusEl = document.getElementById('gen-status');
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+
+    var params = collectBaseParams();
     var batches = Math.min(parseInt(document.getElementById('gen-batches').value) || 1, 10);
     statusEl.textContent = batches > 1 ? '0/' + batches + ' batches...' : 'Submitting...';
 
@@ -570,6 +630,9 @@ async function generate() {
         renderGallery();
         showToast(newImages.length + ' image(s) generated', 'success');
         statusEl.textContent = newImages.length + ' images';
+        // Record to session history
+        recordHistory(promptIds[0], newImages, params);
+        loadHistory();
     } else {
         statusEl.textContent = 'No images returned';
         showToast('Generation failed or timed out', 'error');
@@ -577,6 +640,179 @@ async function generate() {
 
     btn.disabled = false;
     btn.textContent = 'Generate';
+}
+
+// ─── Sweep Mode ───
+function toggleSweepMode(enabled) {
+    sweepEnabled = enabled;
+    document.getElementById('sweep-controls').style.display = enabled ? '' : 'none';
+    document.getElementById('generate-btn').textContent = enabled ? 'Sweep' : 'Generate';
+}
+
+async function generateSweep() {
+    var btn = document.getElementById('generate-btn');
+    var statusEl = document.getElementById('gen-status');
+    btn.disabled = true;
+    btn.textContent = 'Sweeping...';
+
+    var params = collectBaseParams();
+    var sweepParam = document.getElementById('sweep-param').value;
+    var sweepValStr = document.getElementById('sweep-values').value.trim();
+    var sweepCount = parseInt(document.getElementById('sweep-count').value) || 4;
+
+    var sweepValues = [];
+    if (sweepValStr) {
+        sweepValues = sweepValStr.split(',').map(function(v) {
+            return sweepParam === 'seed' ? parseInt(v.trim()) : parseFloat(v.trim());
+        }).filter(function(v) { return !isNaN(v); });
+    }
+    // Auto-generate random seeds if sweep param is seed and no values given
+    if (sweepValues.length === 0 && sweepParam === 'seed') {
+        for (var i = 0; i < sweepCount; i++) {
+            sweepValues.push(Math.floor(Math.random() * 2**32));
+        }
+    }
+    if (sweepValues.length === 0) {
+        showToast('Enter sweep values or use Seed sweep', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Sweep';
+        return;
+    }
+
+    statusEl.textContent = 'Submitting sweep (' + sweepValues.length + ' values)...';
+
+    try {
+        var body = Object.assign({}, params, {
+            sweep_param: sweepParam,
+            sweep_values: sweepValues,
+        });
+        var r = await fetch('/studio/image/api/sweep', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        var data = await r.json();
+        if (data.error) {
+            showToast(data.error, 'error');
+            btn.disabled = false;
+            btn.textContent = 'Sweep';
+            return;
+        }
+
+        var promptEntries = data.prompt_ids || [];
+        statusEl.textContent = 'Polling ' + promptEntries.length + ' sweep jobs...';
+
+        // Poll all in parallel
+        var results = await Promise.all(promptEntries.map(function(entry) {
+            return pollBatch(entry.prompt_id).then(function(imgs) {
+                return { imgs: imgs, value: entry.sweep_value };
+            });
+        }));
+
+        renderSweepGrid(sweepParam, results);
+        showToast('Sweep complete (' + promptEntries.length + ' results)', 'success');
+        statusEl.textContent = 'Sweep done';
+    } catch (e) {
+        showToast('Sweep failed: ' + e, 'error');
+        statusEl.textContent = 'Error';
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Sweep';
+}
+
+function renderSweepGrid(sweepParam, results) {
+    var grid = document.getElementById('sweep-grid');
+    var items = document.getElementById('sweep-grid-items');
+    var label = document.getElementById('sweep-grid-label');
+    label.textContent = 'Sweep: ' + sweepParam;
+    items.textContent = '';
+    grid.style.display = '';
+
+    results.forEach(function(r) {
+        var imgs = r.imgs || [];
+        var val = r.value;
+        var cell = document.createElement('div');
+        cell.className = 'ig-sweep-cell';
+
+        var title = document.createElement('div');
+        title.className = 'ig-sweep-cell-title label-tech text-xs';
+        title.textContent = sweepParam + '=' + val;
+        cell.appendChild(title);
+
+        if (imgs.length > 0) {
+            var imgEl = document.createElement('img');
+            imgEl.src = buildProxyUrl(imgs[0]);
+            imgEl.loading = 'lazy';
+            imgEl.className = contentBlurEnabled ? 'blurred' : '';
+            imgEl.onclick = (function(capturedImg) {
+                return function() {
+                    // Add to gallery and open lightbox
+                    allImages.unshift(capturedImg);
+                    renderGallery();
+                    openLightbox(0);
+                };
+            })(imgs[0]);
+            cell.appendChild(imgEl);
+
+            var useBtn = document.createElement('button');
+            useBtn.className = 'btn text-xs';
+            useBtn.textContent = 'Add to gallery';
+            useBtn.onclick = (function(capturedImgs) {
+                return function() {
+                    allImages = capturedImgs.concat(allImages);
+                    renderGallery();
+                    showToast('Added ' + capturedImgs.length + ' image(s)', 'success');
+                };
+            })(imgs);
+            cell.appendChild(useBtn);
+        } else {
+            var fail = document.createElement('div');
+            fail.className = 'text-xs text-muted';
+            fail.textContent = 'Failed';
+            cell.appendChild(fail);
+        }
+
+        items.appendChild(cell);
+    });
+}
+
+function closeSweepGrid() {
+    document.getElementById('sweep-grid').style.display = 'none';
+}
+
+// ─── Upscale ───
+async function upscaleImage(img) {
+    var statusEl = document.getElementById('gen-status');
+    statusEl.textContent = 'Upscaling...';
+
+    try {
+        var r = await fetch('/studio/image/api/upscale', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                filename: img.filename,
+                subfolder: img.subfolder || '',
+                type: img.type || 'output',
+            }),
+        });
+        var data = await r.json();
+        if (data.error) { showToast(data.error, 'error'); return; }
+
+        statusEl.textContent = 'Upscale queued, polling...';
+        var imgs = await pollBatch(data.prompt_id);
+        if (imgs && imgs.length) {
+            allImages = imgs.concat(allImages);
+            renderGallery();
+            showToast('Upscale complete', 'success');
+            statusEl.textContent = 'Upscale done';
+        } else {
+            showToast('Upscale timed out', 'error');
+            statusEl.textContent = '';
+        }
+    } catch (e) {
+        showToast('Upscale failed: ' + e, 'error');
+    }
 }
 
 async function pollBatch(promptId) {
@@ -602,13 +838,30 @@ function renderGallery() {
     allImages.forEach(function(img, idx) {
         var item = document.createElement('div');
         item.className = 'gallery-item' + (contentBlurEnabled ? ' blurred' : '');
-        item.addEventListener('click', function() { openLightbox(idx); });
 
         var imgEl = document.createElement('img');
         imgEl.src = buildProxyUrl(img);
         imgEl.loading = 'lazy';
         imgEl.alt = img.filename;
+        imgEl.addEventListener('click', function() { openLightbox(idx); });
         item.appendChild(imgEl);
+
+        // Upscale button overlay
+        var overlay = document.createElement('div');
+        overlay.className = 'gallery-item-overlay';
+        var upBtn = document.createElement('button');
+        upBtn.className = 'btn text-xs ig-upscale-btn';
+        upBtn.textContent = '2× Upscale';
+        upBtn.title = 'Upscale this image 2×';
+        upBtn.onclick = (function(capturedImg) {
+            return function(e) {
+                e.stopPropagation();
+                upscaleImage(capturedImg);
+            };
+        })(img);
+        overlay.appendChild(upBtn);
+        item.appendChild(overlay);
+
         gallery.appendChild(item);
     });
 }
@@ -649,6 +902,108 @@ document.addEventListener('keydown', function(e) {
     else if (e.key === 'ArrowLeft') lightboxNav(-1);
     else if (e.key === 'ArrowRight') lightboxNav(1);
 });
+
+// ─── Session History ───
+async function loadHistory() {
+    try {
+        var r = await fetch('/studio/image/api/history');
+        var items = await r.json();
+        renderHistoryPanel(items);
+    } catch (e) {}
+}
+
+function renderHistoryPanel(items) {
+    var list = document.getElementById('history-list');
+    var empty = document.getElementById('history-empty');
+    list.querySelectorAll('.ig-history-item').forEach(function(el) { el.remove(); });
+
+    if (!items || items.length === 0) {
+        if (empty) empty.style.display = '';
+        return;
+    }
+    if (empty) empty.style.display = 'none';
+
+    items.forEach(function(entry) {
+        var item = document.createElement('div');
+        item.className = 'ig-history-item';
+
+        // Thumbnail
+        if (entry.thumbnail) {
+            var thumb = document.createElement('img');
+            thumb.src = buildProxyUrl(entry.thumbnail);
+            thumb.className = 'ig-history-thumb' + (contentBlurEnabled ? ' blurred' : '');
+            thumb.loading = 'lazy';
+            item.appendChild(thumb);
+        }
+
+        var info = document.createElement('div');
+        info.className = 'ig-history-info';
+
+        var ts = document.createElement('div');
+        ts.className = 'text-xs text-muted';
+        ts.textContent = entry.timestamp_str || '';
+        info.appendChild(ts);
+
+        var prompt = document.createElement('div');
+        prompt.className = 'text-xs ig-history-prompt';
+        var p = (entry.params && entry.params.prompt) || '';
+        prompt.textContent = p.length > 60 ? p.slice(0, 57) + '...' : p;
+        prompt.title = p;
+        info.appendChild(prompt);
+
+        var reuseBtn = document.createElement('button');
+        reuseBtn.className = 'btn text-xs';
+        reuseBtn.textContent = 'Re-use';
+        reuseBtn.title = 'Re-populate form with these settings';
+        reuseBtn.onclick = (function(capturedParams) {
+            return function() {
+                if (capturedParams) {
+                    applyParams(capturedParams);
+                    if (capturedParams.prompt)
+                        document.getElementById('gen-prompt').value = capturedParams.prompt;
+                    if (capturedParams.seed !== undefined && capturedParams.seed !== null)
+                        document.getElementById('gen-seed').value = capturedParams.seed;
+                    showToast('Settings loaded from history', 'success');
+                }
+            };
+        })(entry.params);
+        info.appendChild(reuseBtn);
+
+        item.appendChild(info);
+        list.appendChild(item);
+    });
+}
+
+async function recordHistory(promptId, images, params) {
+    try {
+        await fetch('/studio/image/api/history/record', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt_id: promptId, images: images, params: params }),
+        });
+    } catch (e) {}
+}
+
+async function clearHistory() {
+    try {
+        await fetch('/studio/image/api/history/clear', { method: 'POST' });
+        renderHistoryPanel([]);
+        showToast('History cleared', 'success');
+    } catch (e) {}
+}
+
+function toggleHistoryPanel() {
+    historyPanelOpen = !historyPanelOpen;
+    localStorage.setItem('orracle-history-panel', historyPanelOpen ? 'true' : 'false');
+    applyHistoryPanelState();
+}
+
+function applyHistoryPanelState() {
+    var panel = document.getElementById('history-panel');
+    var toggle = document.getElementById('history-toggle');
+    if (panel) panel.classList.toggle('open', historyPanelOpen);
+    if (toggle) toggle.classList.toggle('active', historyPanelOpen);
+}
 
 // ─── ComfyUI Queue Report ───
 var queuePollId = null;

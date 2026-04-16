@@ -7,13 +7,54 @@ Server builds workflows from parameters — clients never send raw ComfyUI JSON.
 
 from __future__ import annotations
 
+import time
+import threading
+
 from flask import (Blueprint, Response, current_app, jsonify,
-                   render_template, request)
+                   render_template, request, session)
 
 from shared import load_yaml, save_yaml
 from training import comfyui
 
 image_gen_bp = Blueprint('image_gen', __name__, url_prefix='/studio/image')
+
+# ---------------------------------------------------------------------------
+# Session history — in-memory, keyed by Flask session id
+# ---------------------------------------------------------------------------
+
+_history_store: dict[str, list[dict]] = {}
+_history_lock = threading.Lock()
+MAX_HISTORY = 100  # per session
+
+
+def _session_key() -> str:
+    """Return a stable key for the current Flask session."""
+    # Use the Flask session's sid if available, else create a server-side key.
+    from flask import session as flask_session
+    key = flask_session.get('_img_history_key')
+    if not key:
+        import uuid
+        key = str(uuid.uuid4())
+        flask_session['_img_history_key'] = key
+        flask_session.permanent = True
+    return key
+
+
+def _add_to_history(entry: dict):
+    """Append a generation result to the current session's history."""
+    key = _session_key()
+    with _history_lock:
+        bucket = _history_store.setdefault(key, [])
+        bucket.insert(0, entry)  # newest first
+        if len(bucket) > MAX_HISTORY:
+            del bucket[MAX_HISTORY:]
+
+
+def _get_history() -> list[dict]:
+    """Return current session's history (newest first)."""
+    key = _session_key()
+    with _history_lock:
+        return list(_history_store.get(key, []))
 
 
 def _get_comfyui_url():
@@ -139,6 +180,8 @@ def api_generate():
     if not prompt_id:
         return jsonify({'error': 'Failed to queue prompt — is ComfyUI running?'}), 502
 
+    # Pre-seed history entry; images will be filled in when the client polls
+    # and calls /api/history/record once generation completes.
     return jsonify({'prompt_id': prompt_id})
 
 
@@ -195,6 +238,185 @@ def api_queue():
     """Get ComfyUI queue status filtered to orracle-originated jobs."""
     url = request.args.get('url') or _get_comfyui_url()
     return jsonify(comfyui.get_orracle_queue(url))
+
+
+# ---------------------------------------------------------------------------
+# API — parameter sweep
+# ---------------------------------------------------------------------------
+
+SWEEP_PARAMS = ('seed', 'cfg', 'steps')
+MAX_SWEEP_COUNT = 16
+
+
+@image_gen_bp.route('/api/sweep', methods=['POST'])
+def api_sweep():
+    """Queue N generations varying one parameter across a list of values.
+
+    Body:
+        {same as /api/generate} plus:
+        sweep_param: "seed" | "cfg" | "steps"
+        sweep_values: [v1, v2, ...]   (max 16)
+
+    Returns:
+        {prompt_ids: [...]}  — one per sweep value
+    """
+    data = request.json or {}
+    url = data.get('url') or _get_comfyui_url()
+
+    checkpoint = data.get('checkpoint')
+    if not checkpoint:
+        return jsonify({'error': 'checkpoint required'}), 400
+    prompt = data.get('prompt', '').strip()
+    if not prompt:
+        return jsonify({'error': 'prompt required'}), 400
+
+    sweep_param = data.get('sweep_param', 'seed')
+    if sweep_param not in SWEEP_PARAMS:
+        return jsonify({'error': f'sweep_param must be one of: {SWEEP_PARAMS}'}), 400
+
+    sweep_values = data.get('sweep_values', [])
+    if not sweep_values:
+        return jsonify({'error': 'sweep_values required'}), 400
+    sweep_values = sweep_values[:MAX_SWEEP_COUNT]
+
+    prompt_ids = []
+    errors = []
+
+    base_seed = data.get('seed')
+    import random as _random
+
+    for val in sweep_values:
+        # Build per-sweep params
+        seed = base_seed if sweep_param != 'seed' else (
+            int(val) if val is not None and int(val) >= 0 else None
+        )
+        if seed is None and sweep_param != 'seed':
+            seed = _random.randint(0, 2**32 - 1)
+
+        cfg = float(val) if sweep_param == 'cfg' else float(data.get('cfg', 7.0))
+        steps = int(val) if sweep_param == 'steps' else int(data.get('steps', 20))
+
+        workflow = comfyui.build_workflow(
+            checkpoint=checkpoint,
+            loras=data.get('loras', []),
+            prompt=prompt,
+            negative_prompt=data.get('negative_prompt', ''),
+            seed=seed,
+            steps=steps,
+            cfg=cfg,
+            width=data.get('width', 1024),
+            height=data.get('height', 1024),
+            sampler=data.get('sampler', 'euler'),
+            scheduler=data.get('scheduler', 'normal'),
+            batch_size=1,
+            clip_skip=data.get('clip_skip', 1),
+            filename_prefix='orracle/sweep_' + checkpoint.split('.')[0][:16],
+        )
+
+        pid = comfyui.queue_prompt(url, workflow)
+        if pid:
+            prompt_ids.append({'prompt_id': pid, 'sweep_value': val})
+        else:
+            errors.append(f'Failed to queue sweep value {val}')
+
+    if not prompt_ids:
+        return jsonify({'error': 'All sweep jobs failed to queue', 'errors': errors}), 502
+
+    return jsonify({
+        'prompt_ids': prompt_ids,
+        'sweep_param': sweep_param,
+        'count': len(prompt_ids),
+        'errors': errors,
+    })
+
+
+# ---------------------------------------------------------------------------
+# API — upscale
+# ---------------------------------------------------------------------------
+
+@image_gen_bp.route('/api/upscale', methods=['POST'])
+def api_upscale():
+    """Build and submit a 2× upscale workflow for an existing image.
+
+    Body:
+        filename: str      — ComfyUI output filename
+        subfolder: str     — optional subfolder
+        type: str          — output type (default "output")
+        scale: float       — upscale factor (default 2.0)
+        upscale_model: str — upscale model name (default "RealESRGAN_x4plus.pth")
+
+    Returns:
+        {prompt_id: str}
+    """
+    data = request.json or {}
+    url = data.get('url') or _get_comfyui_url()
+
+    filename = data.get('filename', '').strip()
+    if not filename:
+        return jsonify({'error': 'filename required'}), 400
+
+    subfolder = data.get('subfolder', '')
+    img_type = data.get('type', 'output')
+    upscale_model = data.get('upscale_model', 'RealESRGAN_x4plus.pth')
+
+    workflow = comfyui.build_upscale_workflow(
+        filename=filename,
+        subfolder=subfolder,
+        img_type=img_type,
+        upscale_model=upscale_model,
+        filename_prefix='orracle/upscale',
+    )
+
+    prompt_id = comfyui.queue_prompt(url, workflow)
+    if not prompt_id:
+        return jsonify({'error': 'Failed to queue upscale — is ComfyUI running?'}), 502
+
+    return jsonify({'prompt_id': prompt_id})
+
+
+# ---------------------------------------------------------------------------
+# API — session history
+# ---------------------------------------------------------------------------
+
+@image_gen_bp.route('/api/history')
+def api_history_list():
+    """Return this session's generation history (newest first)."""
+    return jsonify(_get_history())
+
+
+@image_gen_bp.route('/api/history/record', methods=['POST'])
+def api_history_record():
+    """Record a completed generation into session history.
+
+    Called by the client after polling confirms completion.
+    """
+    data = request.json or {}
+    prompt_id = data.get('prompt_id', '')
+    images = data.get('images', [])
+    params = data.get('params', {})
+
+    if not prompt_id:
+        return jsonify({'error': 'prompt_id required'}), 400
+
+    entry = {
+        'prompt_id': prompt_id,
+        'timestamp': time.time(),
+        'timestamp_str': time.strftime('%Y-%m-%d %H:%M:%S'),
+        'images': images,
+        'params': params,
+        'thumbnail': images[0] if images else None,
+    }
+    _add_to_history(entry)
+    return jsonify({'ok': True, 'history_size': len(_get_history())})
+
+
+@image_gen_bp.route('/api/history/clear', methods=['POST'])
+def api_history_clear():
+    """Clear this session's generation history."""
+    key = _session_key()
+    with _history_lock:
+        _history_store.pop(key, None)
+    return jsonify({'ok': True})
 
 
 # ---------------------------------------------------------------------------

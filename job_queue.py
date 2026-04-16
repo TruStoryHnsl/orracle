@@ -618,66 +618,89 @@ class JobQueue:
     def _dispatch_image_gen(self, job: Job):
         """Dispatch an image generation job via ComfyUI with WebSocket progress."""
         from training import comfyui
+        from shared import get_machine
 
-        # Prefer URL from job params (set by API), fall back to service manager
-        url = job.params.get('comfyui_url') or \
-            self._services.get_endpoint(job.machine, 'comfyui')
+        # Check if stateless mode is configured on this machine
+        machine_cfg = get_machine(job.machine) or {}
+        comfyui_mode = machine_cfg.get('comfyui_mode', 'persistent')
+        launcher = None
 
-        # Auto-start ComfyUI if unavailable
+        if comfyui_mode == 'stateless':
+            from training.comfyui_launcher import ComfyUILauncher
+            launcher = ComfyUILauncher(job.machine)
+            self.update_progress(job.id, 0.02, 'Spawning ComfyUI (stateless)...')
+            url = launcher.start()
+            if not url:
+                self.fail(job.id, 'Stateless ComfyUI failed to start', auto_retry=False)
+                return
+        else:
+            # Prefer URL from job params (set by API), fall back to service manager
+            url = job.params.get('comfyui_url') or \
+                self._services.get_endpoint(job.machine, 'comfyui')
+
+        # Auto-start ComfyUI if unavailable (persistent mode only — stateless
+        # already has a url at this point if it succeeded)
         if not url:
             url = self._try_autostart_comfyui(job.machine)
         if not url:
+            if launcher:
+                launcher.stop()
             self.fail(job.id, 'No ComfyUI endpoint available')
             return
 
-        workflow = job.params.get('workflow', {})
-        self.update_progress(job.id, 0.05, 'Submitting to ComfyUI')
+        try:
+            workflow = job.params.get('workflow', {})
+            self.update_progress(job.id, 0.05, 'Submitting to ComfyUI')
 
-        # Progress callback — relays ComfyUI WebSocket events to job queue SSE
-        current_node = [None]
-        total_nodes = [max(1, len(workflow))]
+            # Progress callback — relays ComfyUI WebSocket events to job queue SSE
+            current_node = [None]
+            total_nodes = [max(1, len(workflow))]
 
-        def on_progress(event_type, data):
-            if event_type == 'queued':
-                self.update_progress(job.id, 0.1, 'Queued in ComfyUI')
-            elif event_type == 'execution_start':
-                self.update_progress(job.id, 0.15, 'Generating...')
-            elif event_type == 'executing':
-                node = data.get('node')
-                if node:
-                    current_node[0] = node
-                    # Estimate progress from node execution order
-                    node_class = workflow.get(node, {}).get('class_type', '')
-                    pct = 0.15 + 0.7 * (list(workflow.keys()).index(node) + 1) / total_nodes[0] \
-                        if node in workflow else 0.5
-                    self.update_progress(job.id, min(0.85, pct),
-                                         f'Running {node_class}' if node_class else 'Processing...')
-            elif event_type == 'progress':
-                # Step-level progress within a node (e.g., KSampler steps)
-                value = data.get('value', 0)
-                max_val = data.get('max', 1)
-                if max_val > 0:
-                    step_pct = value / max_val
-                    self.update_progress(
-                        job.id, 0.2 + 0.65 * step_pct,
-                        f'Step {value}/{max_val}')
-            elif event_type == 'executed':
-                self.update_progress(job.id, 0.9, 'Saving output...')
+            def on_progress(event_type, data):
+                if event_type == 'queued':
+                    self.update_progress(job.id, 0.1, 'Queued in ComfyUI')
+                elif event_type == 'execution_start':
+                    self.update_progress(job.id, 0.15, 'Generating...')
+                elif event_type == 'executing':
+                    node = data.get('node')
+                    if node:
+                        current_node[0] = node
+                        # Estimate progress from node execution order
+                        node_class = workflow.get(node, {}).get('class_type', '')
+                        pct = 0.15 + 0.7 * (list(workflow.keys()).index(node) + 1) / total_nodes[0] \
+                            if node in workflow else 0.5
+                        self.update_progress(job.id, min(0.85, pct),
+                                             f'Running {node_class}' if node_class else 'Processing...')
+                elif event_type == 'progress':
+                    # Step-level progress within a node (e.g., KSampler steps)
+                    value = data.get('value', 0)
+                    max_val = data.get('max', 1)
+                    if max_val > 0:
+                        step_pct = value / max_val
+                        self.update_progress(
+                            job.id, 0.2 + 0.65 * step_pct,
+                            f'Step {value}/{max_val}')
+                elif event_type == 'executed':
+                    self.update_progress(job.id, 0.9, 'Saving output...')
 
-        # Stream via WebSocket (falls back to polling if unavailable)
-        history = comfyui.stream_prompt(url, workflow, timeout=600,
-                                        on_progress=on_progress)
-        if history:
-            prompt_id = history.get('prompt_id', '')
-            # Extract prompt_id from the outputs if not at top level
-            if not prompt_id:
-                for node_out in history.get('outputs', {}).values():
-                    for img in node_out.get('images', []):
-                        prompt_id = img.get('prompt_id', prompt_id)
-                        break
-            self.complete(job.id, {'prompt_id': prompt_id, 'output': history})
-        else:
-            self.fail(job.id, 'ComfyUI prompt timed out or failed')
+            # Stream via WebSocket (falls back to polling if unavailable)
+            history = comfyui.stream_prompt(url, workflow, timeout=600,
+                                            on_progress=on_progress)
+            if history:
+                prompt_id = history.get('prompt_id', '')
+                # Extract prompt_id from the outputs if not at top level
+                if not prompt_id:
+                    for node_out in history.get('outputs', {}).values():
+                        for img in node_out.get('images', []):
+                            prompt_id = img.get('prompt_id', prompt_id)
+                            break
+                self.complete(job.id, {'prompt_id': prompt_id, 'output': history})
+            else:
+                self.fail(job.id, 'ComfyUI prompt timed out or failed')
+        finally:
+            # Stateless mode: always kill the ephemeral process group
+            if launcher:
+                launcher.stop()
 
     def _try_autostart_comfyui(self, machine: str) -> str | None:
         """Attempt to auto-start ComfyUI on the target machine.
@@ -722,18 +745,191 @@ class JobQueue:
         return None
 
     def _dispatch_pipeline(self, job: Job):
-        """Dispatch a data pipeline job."""
-        self.update_progress(job.id, 0.1, 'Pipeline starting')
-        # Pipeline dispatch integrates with executor/remote.py
-        # For now, mark as completed — full integration in Phase 5
-        self.complete(job.id, {'message': 'Pipeline dispatch not yet wired'})
+        """Dispatch a data pipeline job via PipelineRunner with SSE progress events."""
+        from executor.runner import PipelineRunner
+        from executor.dag import Pipeline
+
+        params = job.params
+        pipeline_id = params.get('pipeline_id', '')
+        pipeline_data = params.get('pipeline', {})
+
+        # Load pipeline — either from serialised dict in params or by ID from disk
+        if pipeline_data:
+            try:
+                pipeline = Pipeline.from_dict(pipeline_data)
+            except Exception as e:
+                self.fail(job.id, f'Failed to deserialise pipeline: {e}',
+                          auto_retry=False)
+                return
+        elif pipeline_id:
+            import os
+            config_dir = self._config_dir
+            pipeline_path = os.path.join(config_dir, 'pipelines',
+                                         f'{pipeline_id}.yaml')
+            if not os.path.exists(pipeline_path):
+                self.fail(job.id, f'Pipeline not found: {pipeline_id}',
+                          auto_retry=False)
+                return
+            try:
+                pipeline = Pipeline.load(pipeline_path)
+            except Exception as e:
+                self.fail(job.id, f'Failed to load pipeline {pipeline_id}: {e}',
+                          auto_retry=False)
+                return
+        else:
+            self.fail(job.id, 'No pipeline_id or pipeline data in params',
+                      auto_retry=False)
+            return
+
+        # Validate before running
+        errors = pipeline.validate()
+        if errors:
+            self.fail(job.id, 'Pipeline validation failed: ' + '; '.join(errors),
+                      auto_retry=False)
+            return
+
+        self.update_progress(job.id, 0.05, 'Pipeline validated, starting execution')
+
+        # Progress callback: maps node index → job progress (5%–95%)
+        order_len = [max(1, len(pipeline.topological_sort()))]
+
+        def on_node_progress(progress: dict):
+            idx = progress.get('node_index', 0)
+            total = progress.get('total_nodes', order_len[0])
+            pct = 0.05 + 0.9 * (idx / max(1, total))
+            node_id = progress.get('current_node', '')
+            self.update_progress(
+                job.id, pct,
+                f'Node {idx + 1}/{total}: {node_id}' if node_id else f'{idx + 1}/{total}',
+            )
+            # Propagate node-level progress as an SSE event so the pipeline
+            # blueprint's active-run page can show per-node state.
+            self._notify('pipeline_node_progress',
+                         JobQueue._pipeline_progress_event(job, progress))
+
+        runner = PipelineRunner()
+        task_id = runner.execute(pipeline, progress_callback=on_node_progress)
+
+        # Block until execution finishes, checking every 2 s
+        deadline = time.time() + 3600  # 1-hour hard timeout
+        while time.time() < deadline:
+            task = runner.get_task(task_id)
+            if not task:
+                self.fail(job.id, 'Pipeline task vanished unexpectedly')
+                return
+            if task['status'] == 'completed':
+                self.complete(job.id, {
+                    'task_id': task_id,
+                    'pipeline_id': pipeline.id,
+                    'node_metrics': task.get('node_metrics', {}),
+                    'log': task.get('log', [])[-50:],
+                })
+                return
+            if task['status'] in ('failed', 'cancelled'):
+                self.fail(job.id,
+                          task.get('error') or f'Pipeline {task["status"]}',
+                          auto_retry=False)
+                return
+            self._stop_event.wait(2)
+
+        self.fail(job.id, 'Pipeline execution timed out (1 hour)', auto_retry=False)
 
     def _dispatch_export(self, job: Job):
-        """Dispatch an export/deploy job."""
-        self.update_progress(job.id, 0.1, 'Export starting')
-        # Export dispatch integrates with training/export_mgr.py
-        # For now, mark as completed — full integration in Phase 5
-        self.complete(job.id, {'message': 'Export dispatch not yet wired'})
+        """Dispatch an export/deploy job via export_mgr."""
+        from training import export_mgr
+
+        params = job.params
+        export_type = params.get('export_type', 'deploy')
+
+        self.update_progress(job.id, 0.05, f'Starting {export_type} export')
+
+        if export_type == 'fuse':
+            task_id = export_mgr.start_fuse_task(
+                adapter_path=params.get('adapter_path', ''),
+                base_model=params.get('base_model', ''),
+                output_dir=params.get('output_dir', ''),
+                framework=params.get('framework', 'mlx'),
+            )
+        elif export_type == 'gguf':
+            task_id = export_mgr.start_gguf_task(
+                adapter_path=params.get('adapter_path', ''),
+                output_name=params.get('output_name', 'model'),
+                quant_type=params.get('quant_type', 'q4_k_m'),
+                framework=params.get('framework', 'unsloth'),
+            )
+        elif export_type == 'deploy':
+            task_id = export_mgr.start_deploy_pipeline(
+                adapter_path=params.get('adapter_path', ''),
+                base_model=params.get('base_model', ''),
+                model_name=params.get('model_name', 'orracle-model'),
+                hostname=params.get('hostname'),
+                niftytune_dir=params.get('niftytune_dir', '~/niftytune'),
+                venv=params.get('venv', 'venv_mlx'),
+                framework=params.get('framework', 'mlx'),
+                template_key=params.get('template_key', 'mistral'),
+                system_prompt=params.get('system_prompt'),
+                params=params.get('ollama_params'),
+            )
+        else:
+            self.fail(job.id, f'Unknown export_type: {export_type}',
+                      auto_retry=False)
+            return
+
+        # Poll the export task until it finishes
+        stage_reported = ['']
+        deadline = time.time() + 7200  # 2-hour hard timeout
+        while time.time() < deadline:
+            task = export_mgr.get_export_task(task_id)
+            if not task:
+                self.fail(job.id, 'Export task vanished')
+                return
+
+            stage = task.get('stage', '')
+            # Map stage to progress percentage
+            stage_pct = {
+                'starting': 0.05, 'fusing': 0.2, 'transferring': 0.5,
+                'converting': 0.7, 'creating': 0.9, 'done': 1.0,
+            }.get(stage, 0.1)
+
+            if stage != stage_reported[0]:
+                stage_reported[0] = stage
+                self.update_progress(job.id, stage_pct,
+                                     f'Export: {stage or "running"}')
+
+            status = task.get('status', '')
+            if status == 'completed':
+                self.complete(job.id, {
+                    'task_id': task_id,
+                    'export_type': export_type,
+                    'log': task.get('output', [])[-30:],
+                })
+                return
+            if status == 'failed':
+                last_lines = task.get('output', [])[-5:]
+                error = '; '.join(l for l in last_lines if l.startswith('ERROR:')) \
+                    or f'Export failed (see task {task_id})'
+                self.fail(job.id, error, auto_retry=False)
+                return
+
+            self._stop_event.wait(5)
+
+        self.fail(job.id, 'Export timed out (2 hours)', auto_retry=False)
+
+    # ------------------------------------------------------------------
+    # Internal helpers — dispatch utilities
+    # ------------------------------------------------------------------
+
+    # (module-level helper, defined as a static method for cleanliness)
+    @staticmethod
+    def _pipeline_progress_event(job: 'Job', progress: dict) -> dict:
+        """Build a synthetic job-dict carrying pipeline node progress data.
+
+        Used to fire pipeline_node_progress SSE events without storing them
+        as real job state.
+        """
+        d = job.to_dict()
+        d['pipeline_progress'] = progress
+        return d
 
     # ------------------------------------------------------------------
     # Persistence
