@@ -1,0 +1,684 @@
+{% extends "studio/layout.html" %}
+{% block title %}Gallery — Orracle{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/studio.css') }}">
+<style>
+/* ── Gallery layout ── */
+.gallery-page { display: flex; flex-direction: column; gap: var(--space-xl); }
+
+/* ── Filter bar ── */
+.gal-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-md);
+    padding: var(--space-lg);
+    background: var(--surface-container);
+    border-bottom: 1px solid var(--outline-variant);
+}
+.gal-filter-group { display: flex; flex-direction: column; gap: var(--space-xs); min-width: 120px; }
+.gal-filter-group label { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--on-surface-variant); text-transform: uppercase; letter-spacing: 0.06em; }
+.gal-filter-group input,
+.gal-filter-group select { font-size: var(--font-size-sm); padding: var(--space-xs) var(--space-sm); background: var(--surface-container-high); border: 1px solid var(--outline-variant); color: var(--on-surface); border-radius: 0; }
+.gal-filter-actions { display: flex; gap: var(--space-sm); align-items: flex-end; margin-left: auto; }
+
+/* ── Toolbar ── */
+.gal-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-sm) 0;
+    flex-wrap: wrap;
+}
+.gal-count { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--on-surface-variant); }
+.gal-select-all-label { display: flex; align-items: center; gap: var(--space-xs); font-size: var(--font-size-sm); cursor: pointer; }
+.gal-batch-actions { display: flex; gap: var(--space-sm); }
+
+/* ── Grid ── */
+.gal-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--space-md);
+}
+
+/* ── Card ── */
+.gal-card {
+    position: relative;
+    background: var(--surface-container);
+    cursor: pointer;
+    overflow: hidden;
+    outline: 2px solid transparent;
+    transition: outline-color 0.15s;
+}
+.gal-card.selected { outline-color: var(--primary); }
+.gal-card img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    display: block;
+    transition: filter 0.2s;
+}
+.gal-card img.blurred { filter: blur(16px); }
+
+/* Checkbox (top-left) */
+.gal-card-check {
+    position: absolute;
+    top: var(--space-sm);
+    left: var(--space-sm);
+    width: 20px; height: 20px;
+    opacity: 0;
+    cursor: pointer;
+    z-index: 2;
+    accent-color: var(--primary);
+}
+.gal-card:hover .gal-card-check,
+.gal-card.selected .gal-card-check { opacity: 1; }
+
+/* Overlay on hover */
+.gal-card-overlay {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    background: linear-gradient(0deg, rgba(0,0,0,0.75) 0%, transparent 100%);
+    padding: var(--space-sm);
+    opacity: 0;
+    transition: opacity 0.15s;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-xs);
+}
+.gal-card:hover .gal-card-overlay { opacity: 1; }
+
+/* Rating buttons */
+.gal-rate-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 2px 4px;
+    opacity: 0.6;
+    transition: opacity 0.1s, transform 0.1s;
+    color: var(--on-surface);
+}
+.gal-rate-btn:hover { opacity: 1; transform: scale(1.2); }
+.gal-rate-btn.active-up { opacity: 1; color: var(--primary); }
+.gal-rate-btn.active-down { opacity: 1; color: #ff6b6b; }
+
+/* Rating indicator badge (always visible when rated) */
+.gal-rating-badge {
+    position: absolute;
+    top: var(--space-sm);
+    right: var(--space-sm);
+    font-size: 0.85rem;
+    line-height: 1;
+    z-index: 1;
+    pointer-events: none;
+}
+
+/* ── Load more ── */
+.gal-load-sentinel { height: 40px; }
+.gal-load-spinner {
+    text-align: center;
+    padding: var(--space-xl);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--on-surface-variant);
+}
+
+/* ── Empty state ── */
+.gal-empty {
+    text-align: center;
+    padding: var(--space-2xl) var(--space-xl);
+    color: var(--on-surface-variant);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+}
+
+/* ── Lightbox ── (reuse image gen patterns) */
+.gal-lightbox {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.92);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    flex-direction: column;
+}
+.gal-lightbox.active { display: flex; }
+.gal-lightbox img {
+    max-width: min(90vw, 1200px);
+    max-height: 80vh;
+    object-fit: contain;
+    display: block;
+}
+.gal-lightbox-close {
+    position: absolute; top: var(--space-lg); right: var(--space-lg);
+    background: none; border: none; color: var(--on-surface);
+    font-size: 2rem; cursor: pointer; line-height: 1;
+}
+.gal-lightbox-meta {
+    margin-top: var(--space-md);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--on-surface-variant);
+    display: flex;
+    gap: var(--space-xl);
+    align-items: center;
+}
+.gal-lightbox-nav {
+    position: absolute;
+    top: 50%; transform: translateY(-50%);
+    background: rgba(0,0,0,0.4);
+    border: none; color: var(--on-surface);
+    font-size: 2rem; cursor: pointer;
+    padding: var(--space-md);
+    line-height: 1;
+}
+.gal-lightbox-prev { left: var(--space-lg); }
+.gal-lightbox-next { right: var(--space-lg); }
+.gal-lightbox-rate { font-size: 1.4rem; cursor: pointer; background: none; border: none; color: var(--on-surface); opacity: 0.7; transition: opacity 0.1s; }
+.gal-lightbox-rate:hover { opacity: 1; }
+.gal-lightbox-rate.active-up { opacity: 1; color: var(--primary); }
+.gal-lightbox-rate.active-down { opacity: 1; color: #ff6b6b; }
+
+@media (max-width: 767px) {
+    .gal-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: var(--space-sm); }
+    .gal-filter-bar { gap: var(--space-sm); padding: var(--space-md); }
+    .gal-filter-group { min-width: 100px; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="gallery-page">
+
+    {# ── Filter bar ── #}
+    <div class="gal-filter-bar">
+        <div class="gal-filter-group">
+            <label>From</label>
+            <input type="date" id="filter-from">
+        </div>
+        <div class="gal-filter-group">
+            <label>To</label>
+            <input type="date" id="filter-to">
+        </div>
+        <div class="gal-filter-group">
+            <label>Filename prefix</label>
+            <input type="text" id="filter-prefix" placeholder="e.g. sweep_">
+        </div>
+        <div class="gal-filter-group">
+            <label>Rating</label>
+            <select id="filter-rating">
+                <option value="">All</option>
+                <option value="rated">Rated only</option>
+                <option value="unrated">Unrated only</option>
+                <option value="up">👍 only</option>
+                <option value="down">👎 only</option>
+            </select>
+        </div>
+        <div class="gal-filter-group">
+            <label>Blur</label>
+            <select id="filter-blur">
+                <option value="on">On</option>
+                <option value="off">Off</option>
+            </select>
+        </div>
+        <div class="gal-filter-actions">
+            <button class="btn btn-primary" onclick="applyFilters()">Apply</button>
+            <button class="btn" onclick="clearFilters()">Clear</button>
+        </div>
+    </div>
+
+    {% if not gallery_available %}
+    <div class="gal-empty">
+        Gallery directory not found.<br>
+        <span class="text-xs">Expected: ComfyUI output/orracle/ — generate some images first.</span>
+    </div>
+    {% else %}
+
+    {# ── Toolbar ── #}
+    <div class="gal-toolbar">
+        <span class="gal-count" id="gal-count">Loading…</span>
+        <label class="gal-select-all-label">
+            <input type="checkbox" id="select-all" onchange="toggleSelectAll(this.checked)">
+            Select all visible
+        </label>
+        <div class="gal-batch-actions" id="batch-actions" style="display:none">
+            <button class="btn text-sm" onclick="batchDelete()" style="color:#ff6b6b">Delete selected</button>
+        </div>
+    </div>
+
+    {# ── Grid ── #}
+    <div class="gal-grid" id="gal-grid">
+        <div class="gal-load-spinner" id="gal-loading">Loading…</div>
+    </div>
+
+    <div class="gal-load-sentinel" id="gal-sentinel"></div>
+
+    {% endif %}
+</div>
+
+{# ── Lightbox ── #}
+<div class="gal-lightbox" id="gal-lightbox" onclick="lbClickOutside(event)">
+    <button class="gal-lightbox-close" onclick="closeLightbox()">&times;</button>
+    <button class="gal-lightbox-nav gal-lightbox-prev" onclick="lbNav(-1, event)">&#8249;</button>
+    <img id="lb-img" src="" alt="">
+    <button class="gal-lightbox-nav gal-lightbox-next" onclick="lbNav(1, event)">&#8250;</button>
+    <div class="gal-lightbox-meta">
+        <span id="lb-filename" class="font-mono"></span>
+        <span id="lb-date"></span>
+        <span id="lb-size"></span>
+        <button class="gal-lightbox-rate" id="lb-rate-up" onclick="lbRate('up')" title="Thumbs up">👍</button>
+        <button class="gal-lightbox-rate" id="lb-rate-down" onclick="lbRate('down')" title="Thumbs down">👎</button>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ─── State ───
+var PAGE_LIMIT = 50;
+var _items = [];         // all loaded items (flat list, newest-first)
+var _total = 0;
+var _offset = 0;
+var _loading = false;
+var _allLoaded = false;
+var _filters = {};
+var _selected = new Set();
+var _lbIndex = 0;
+var _blurEnabled = localStorage.getItem('orracle-gallery-blur') !== 'false';
+
+// ─── Init ───
+document.addEventListener('DOMContentLoaded', function() {
+    // Restore blur state
+    var blurSel = document.getElementById('filter-blur');
+    if (blurSel) blurSel.value = _blurEnabled ? 'on' : 'off';
+
+    resetAndLoad();
+    setupInfiniteScroll();
+
+    // Keyboard nav for lightbox
+    document.addEventListener('keydown', function(e) {
+        if (!document.getElementById('gal-lightbox').classList.contains('active')) return;
+        if (e.key === 'Escape') closeLightbox();
+        else if (e.key === 'ArrowLeft') lbNav(-1);
+        else if (e.key === 'ArrowRight') lbNav(1);
+    });
+});
+
+// ─── Filters ───
+function collectFilters() {
+    return {
+        from: document.getElementById('filter-from').value,
+        to: document.getElementById('filter-to').value,
+        prefix: document.getElementById('filter-prefix').value.trim(),
+        rating: document.getElementById('filter-rating').value,
+    };
+}
+
+function applyFilters() {
+    _blurEnabled = document.getElementById('filter-blur').value === 'on';
+    localStorage.setItem('orracle-gallery-blur', _blurEnabled ? 'true' : 'false');
+    resetAndLoad();
+}
+
+function clearFilters() {
+    document.getElementById('filter-from').value = '';
+    document.getElementById('filter-to').value = '';
+    document.getElementById('filter-prefix').value = '';
+    document.getElementById('filter-rating').value = '';
+    document.getElementById('filter-blur').value = _blurEnabled ? 'on' : 'off';
+    resetAndLoad();
+}
+
+function resetAndLoad() {
+    _items = [];
+    _offset = 0;
+    _total = 0;
+    _allLoaded = false;
+    _selected.clear();
+    _filters = collectFilters();
+    var grid = document.getElementById('gal-grid');
+    if (grid) {
+        grid.textContent = '';
+        var spinner = document.createElement('div');
+        spinner.className = 'gal-load-spinner';
+        spinner.id = 'gal-loading';
+        spinner.textContent = 'Loading…';
+        grid.appendChild(spinner);
+    }
+    updateBatchUI();
+    loadPage();
+}
+
+// ─── API load ───
+async function loadPage() {
+    if (_loading || _allLoaded) return;
+    _loading = true;
+
+    var params = new URLSearchParams({
+        offset: _offset,
+        limit: PAGE_LIMIT,
+        from: _filters.from || '',
+        to: _filters.to || '',
+        prefix: _filters.prefix || '',
+        rating: _filters.rating || '',
+    });
+
+    try {
+        var r = await fetch('/studio/image/api/gallery?' + params.toString());
+        var data = await r.json();
+
+        // Remove spinner if present
+        var spinner = document.getElementById('gal-loading');
+        if (spinner) spinner.remove();
+
+        if (!data.available) {
+            showEmpty('Gallery directory not available.');
+            _loading = false;
+            return;
+        }
+
+        _total = data.total;
+        _items = _items.concat(data.items);
+        _offset += data.items.length;
+        _allLoaded = !data.has_more;
+
+        renderItems(data.items);
+        updateCount();
+    } catch (e) {
+        var spinner2 = document.getElementById('gal-loading');
+        if (spinner2) spinner2.textContent = 'Error loading gallery.';
+    }
+    _loading = false;
+}
+
+function showEmpty(msg) {
+    var grid = document.getElementById('gal-grid');
+    if (!grid) return;
+    grid.textContent = '';
+    var el = document.createElement('div');
+    el.className = 'gal-empty';
+    el.textContent = msg || 'No images found.';
+    grid.appendChild(el);
+}
+
+function updateCount() {
+    var el = document.getElementById('gal-count');
+    if (!el) return;
+    var loaded = _items.length;
+    el.textContent = loaded + ' / ' + _total + ' images';
+    if (_total === 0) showEmpty('No images match the current filters.');
+}
+
+// ─── Render cards ───
+function renderItems(items) {
+    var grid = document.getElementById('gal-grid');
+    if (!grid) return;
+
+    items.forEach(function(item, localIdx) {
+        var globalIdx = _items.length - items.length + localIdx;
+        var card = buildCard(item, globalIdx);
+        grid.appendChild(card);
+    });
+}
+
+function buildCard(item, idx) {
+    var card = document.createElement('div');
+    card.className = 'gal-card' + (_selected.has(item.filename) ? ' selected' : '');
+    card.dataset.filename = item.filename;
+    card.dataset.idx = idx;
+
+    // Checkbox
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'gal-card-check';
+    cb.checked = _selected.has(item.filename);
+    cb.addEventListener('change', function(e) {
+        e.stopPropagation();
+        toggleSelect(item.filename, cb.checked, card);
+    });
+    card.appendChild(cb);
+
+    // Rating badge (always visible)
+    if (item.rating) {
+        var badge = document.createElement('div');
+        badge.className = 'gal-rating-badge';
+        badge.id = 'badge-' + item.filename;
+        badge.textContent = item.rating === 'up' ? '👍' : '👎';
+        card.appendChild(badge);
+    } else {
+        // Still add empty badge container so we can update it
+        var badge = document.createElement('div');
+        badge.className = 'gal-rating-badge';
+        badge.id = 'badge-' + item.filename;
+        card.appendChild(badge);
+    }
+
+    // Thumbnail
+    var img = document.createElement('img');
+    img.src = buildProxyUrl(item);
+    img.loading = 'lazy';
+    img.alt = item.filename;
+    img.className = _blurEnabled ? 'blurred' : '';
+    img.addEventListener('click', function(e) {
+        if (e.target === cb) return;
+        openLightbox(idx);
+    });
+    card.appendChild(img);
+
+    // Hover overlay
+    var overlay = document.createElement('div');
+    overlay.className = 'gal-card-overlay';
+
+    var upBtn = document.createElement('button');
+    upBtn.className = 'gal-rate-btn' + (item.rating === 'up' ? ' active-up' : '');
+    upBtn.id = 'rate-up-' + item.filename;
+    upBtn.textContent = '👍';
+    upBtn.title = 'Thumbs up';
+    upBtn.onclick = (function(f, b) {
+        return function(e) { e.stopPropagation(); rateImage(f, 'up', b); };
+    })(item.filename, item);
+    overlay.appendChild(upBtn);
+
+    var downBtn = document.createElement('button');
+    downBtn.className = 'gal-rate-btn' + (item.rating === 'down' ? ' active-down' : '');
+    downBtn.id = 'rate-down-' + item.filename;
+    downBtn.textContent = '👎';
+    downBtn.title = 'Thumbs down';
+    downBtn.onclick = (function(f, b) {
+        return function(e) { e.stopPropagation(); rateImage(f, 'down', b); };
+    })(item.filename, item);
+    overlay.appendChild(downBtn);
+
+    card.appendChild(overlay);
+
+    // Click card body to open lightbox (not checkbox)
+    card.addEventListener('click', function(e) {
+        if (e.target === cb || e.target.closest('.gal-card-overlay')) return;
+        openLightbox(parseInt(card.dataset.idx));
+    });
+
+    return card;
+}
+
+function buildProxyUrl(item) {
+    var p = 'filename=' + encodeURIComponent(item.filename);
+    if (item.subfolder) p += '&subfolder=' + encodeURIComponent(item.subfolder);
+    if (item.type) p += '&type=' + encodeURIComponent(item.type);
+    return '/studio/image/api/proxy?' + p;
+}
+
+// ─── Selection ───
+function toggleSelect(filename, checked, card) {
+    if (checked) {
+        _selected.add(filename);
+        card.classList.add('selected');
+    } else {
+        _selected.delete(filename);
+        card.classList.remove('selected');
+    }
+    updateBatchUI();
+}
+
+function toggleSelectAll(checked) {
+    _items.forEach(function(item) {
+        if (checked) _selected.add(item.filename);
+        else _selected.delete(item.filename);
+    });
+    document.querySelectorAll('.gal-card-check').forEach(function(cb) { cb.checked = checked; });
+    document.querySelectorAll('.gal-card').forEach(function(card) {
+        card.classList.toggle('selected', checked);
+    });
+    updateBatchUI();
+}
+
+function updateBatchUI() {
+    var actions = document.getElementById('batch-actions');
+    if (actions) actions.style.display = _selected.size > 0 ? '' : 'none';
+}
+
+// ─── Batch delete ───
+async function batchDelete() {
+    var filenames = Array.from(_selected);
+    if (!filenames.length) return;
+    if (!confirm('Delete ' + filenames.length + ' image(s)? This cannot be undone.')) return;
+
+    try {
+        var r = await fetch('/studio/image/api/gallery/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filenames: filenames }),
+        });
+        var data = await r.json();
+        if (data.deleted && data.deleted.length) {
+            showToast('Deleted ' + data.deleted.length + ' image(s)', 'success');
+            // Remove cards from DOM and items list
+            data.deleted.forEach(function(fname) {
+                _selected.delete(fname);
+                var card = document.querySelector('.gal-card[data-filename="' + CSS.escape(fname) + '"]');
+                if (card) card.remove();
+                _items = _items.filter(function(i) { return i.filename !== fname; });
+                _total = Math.max(0, _total - 1);
+            });
+            _offset = _items.length;
+            updateCount();
+            updateBatchUI();
+            // Uncheck select-all
+            var sa = document.getElementById('select-all');
+            if (sa) sa.checked = false;
+        }
+        if (data.errors && data.errors.length) {
+            showToast(data.errors[0], 'error');
+        }
+    } catch (e) {
+        showToast('Delete failed: ' + e, 'error');
+    }
+}
+
+// ─── Rating ───
+async function rateImage(filename, rating, itemRef) {
+    // Toggle: clicking same rating again clears it
+    var current = itemRef.rating;
+    var newRating = (current === rating) ? '' : rating;
+
+    try {
+        var r = await fetch('/studio/image/api/image/rate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: filename, rating: newRating }),
+        });
+        var data = await r.json();
+        if (!data.ok && data.error) { showToast(data.error, 'error'); return; }
+
+        // Update in-memory item
+        itemRef.rating = newRating || null;
+
+        // Update card buttons
+        var upEl = document.getElementById('rate-up-' + filename);
+        var downEl = document.getElementById('rate-down-' + filename);
+        if (upEl) upEl.className = 'gal-rate-btn' + (newRating === 'up' ? ' active-up' : '');
+        if (downEl) downEl.className = 'gal-rate-btn' + (newRating === 'down' ? ' active-down' : '');
+
+        // Update badge
+        var badge = document.getElementById('badge-' + filename);
+        if (badge) badge.textContent = newRating === 'up' ? '👍' : newRating === 'down' ? '👎' : '';
+
+        // Update lightbox rating buttons if open for this item
+        if (_items[_lbIndex] && _items[_lbIndex].filename === filename) {
+            updateLbRatingButtons(newRating);
+        }
+    } catch (e) {
+        showToast('Rating failed', 'error');
+    }
+}
+
+// ─── Infinite scroll ───
+function setupInfiniteScroll() {
+    var sentinel = document.getElementById('gal-sentinel');
+    if (!sentinel || !window.IntersectionObserver) return;
+    var obs = new IntersectionObserver(function(entries) {
+        if (entries[0].isIntersecting) loadPage();
+    }, { rootMargin: '200px' });
+    obs.observe(sentinel);
+}
+
+// ─── Lightbox ───
+function openLightbox(idx) {
+    if (idx < 0 || idx >= _items.length) return;
+    _lbIndex = idx;
+    updateLightbox();
+    document.getElementById('gal-lightbox').classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeLightbox() {
+    document.getElementById('gal-lightbox').classList.remove('active');
+    document.body.style.overflow = '';
+}
+
+function lbClickOutside(e) {
+    if (e.target === document.getElementById('gal-lightbox')) closeLightbox();
+}
+
+function lbNav(dir, event) {
+    if (event) { event.stopPropagation(); event.preventDefault(); }
+    _lbIndex = (_lbIndex + dir + _items.length) % _items.length;
+    // Load more if nearing the end
+    if (_lbIndex >= _items.length - 5 && !_allLoaded) loadPage();
+    updateLightbox();
+}
+
+function updateLightbox() {
+    var item = _items[_lbIndex];
+    if (!item) return;
+    document.getElementById('lb-img').src = buildProxyUrl(item);
+    document.getElementById('lb-filename').textContent = item.filename;
+    document.getElementById('lb-date').textContent = item.ts_str || '';
+    document.getElementById('lb-size').textContent = item.size ? formatBytes(item.size) : '';
+    updateLbRatingButtons(item.rating);
+}
+
+function updateLbRatingButtons(rating) {
+    var up = document.getElementById('lb-rate-up');
+    var down = document.getElementById('lb-rate-down');
+    if (up) up.className = 'gal-lightbox-rate' + (rating === 'up' ? ' active-up' : '');
+    if (down) down.className = 'gal-lightbox-rate' + (rating === 'down' ? ' active-down' : '');
+}
+
+function lbRate(rating) {
+    var item = _items[_lbIndex];
+    if (!item) return;
+    rateImage(item.filename, rating, item);
+}
+
+// ─── Utility ───
+function formatBytes(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+    return (b / 1048576).toFixed(1) + ' MB';
+}
+</script>
+{% endblock %}
