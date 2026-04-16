@@ -537,6 +537,59 @@ def stream_prompt(url: str, workflow: dict, timeout: int = 600,
     return None
 
 
+def build_upscale_workflow(filename: str, subfolder: str = '',
+                           img_type: str = 'output',
+                           upscale_model: str = 'RealESRGAN_x4plus.pth',
+                           filename_prefix: str = 'orracle/upscale') -> dict:
+    """Build a ComfyUI workflow that loads an existing image and upscales it 2×.
+
+    Pipeline: LoadImage → UpscaleModelLoader → ImageUpscaleWithModel → SaveImage
+
+    Args:
+        filename: ComfyUI output filename (as returned by extract_images)
+        subfolder: Optional subfolder within ComfyUI output directory
+        img_type: 'output' | 'temp' | 'input'
+        upscale_model: Upscale model filename (must be in ComfyUI/models/upscale_models/)
+        filename_prefix: Output filename prefix
+
+    Returns:
+        ComfyUI API-format workflow dict.
+    """
+    # Build the image path string ComfyUI expects for LoadImage
+    # ComfyUI LoadImage uses "subfolder/filename" or just "filename"
+    load_name = f'{subfolder}/{filename}' if subfolder else filename
+
+    return {
+        '1': {
+            'class_type': 'LoadImage',
+            'inputs': {
+                'image': load_name,
+                'upload': img_type,
+            },
+        },
+        '2': {
+            'class_type': 'UpscaleModelLoader',
+            'inputs': {
+                'model_name': upscale_model,
+            },
+        },
+        '3': {
+            'class_type': 'ImageUpscaleWithModel',
+            'inputs': {
+                'upscale_model': ['2', 0],
+                'image': ['1', 0],
+            },
+        },
+        '4': {
+            'class_type': 'SaveImage',
+            'inputs': {
+                'images': ['3', 0],
+                'filename_prefix': filename_prefix,
+            },
+        },
+    }
+
+
 def extract_images(history_entry: dict) -> list:
     """Extract image info dicts from a completed history entry."""
     images = []

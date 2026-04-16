@@ -9,6 +9,12 @@ machines:
     vault_path: /mnt/vault/read/nifty/gay
     project_path: ~/projects/orracle-dev
     description: "CachyOS VM, RTX 3070"
+    comfyui_dir: ~/comfy/ComfyUI
+    # comfyui_mode controls how image gen jobs interact with ComfyUI.
+    # persistent (default): assume ComfyUI is already running, submit directly.
+    # stateless: SSH-spawn a fresh ComfyUI on a random free port per job,
+    #            kill the process group on job completion or failure.
+    comfyui_mode: persistent
     services:
       comfyui:
         type: comfyui
@@ -29,6 +35,8 @@ machines:
     project_path: /Users/coltonorr/projects/orracle-dev
     description: "macOS M1 Pro 16GB"
     mac_address: ""
+    comfyui_dir: ~/ComfyUI
+    comfyui_mode: persistent
     services:
       comfyui:
         type: comfyui
