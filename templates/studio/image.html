@@ -3,6 +3,38 @@
 
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/studio.css') }}">
+<style>
+/* Rating buttons in gallery overlay */
+.ig-rate-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 1rem; padding: 2px 3px; opacity: 0.6;
+    transition: opacity 0.1s, transform 0.1s;
+    line-height: 1;
+}
+.ig-rate-btn:hover { opacity: 1; transform: scale(1.2); }
+.ig-rate-btn.active-up { opacity: 1; color: var(--primary); }
+.ig-rate-btn.active-down { opacity: 1; color: #ff6b6b; }
+
+/* Rating buttons in lightbox */
+.ig-lightbox-rating {
+    position: absolute;
+    bottom: calc(var(--space-xl) + 2rem);
+    left: 50%; transform: translateX(-50%);
+    display: flex; gap: var(--space-md);
+}
+.ig-lightbox-rate-btn {
+    background: rgba(0,0,0,0.5);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: var(--on-surface);
+    cursor: pointer; font-size: 1.5rem;
+    padding: var(--space-sm) var(--space-md);
+    opacity: 0.7; transition: opacity 0.1s;
+    border-radius: 0;
+}
+.ig-lightbox-rate-btn:hover { opacity: 1; }
+.ig-lightbox-rate-btn.active-up { opacity: 1; border-color: var(--primary); color: var(--primary); }
+.ig-lightbox-rate-btn.active-down { opacity: 1; border-color: #ff6b6b; color: #ff6b6b; }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -247,6 +279,10 @@
     <img id="lightbox-img" src="" alt="">
     <button class="ig-lightbox-nav ig-lightbox-next" onclick="lightboxNav(1, event)">&rsaquo;</button>
     <div class="ig-lightbox-counter" id="lightbox-counter"></div>
+    <div class="ig-lightbox-rating">
+        <button class="ig-lightbox-rate-btn" id="lb-rate-up" onclick="lbRateImage('up')" title="Thumbs up">👍</button>
+        <button class="ig-lightbox-rate-btn" id="lb-rate-down" onclick="lbRateImage('down')" title="Thumbs down">👎</button>
+    </div>
 </div>
 
 {# ── LoRA row template (hidden, cloned by JS) ── #}
@@ -282,6 +318,8 @@ var ponyTagsEnabled = false;
 var sweepEnabled = false;
 var historyPanelOpen = localStorage.getItem('orracle-history-panel') !== 'false';
 var availableLoras = {{ loras | tojson }};
+// filename → "up" | "down" | null (session-scoped, not persisted in JS)
+var _imageRatings = {};
 
 var PONY_POS = 'score_9, score_8_up, score_7_up, ';
 var PONY_NEG = 'score_1, score_2, score_3, ugly, deformed, blurry, low quality, watermark, text, signature, bad anatomy, extra limbs';
@@ -860,10 +898,73 @@ function renderGallery() {
             };
         })(img);
         overlay.appendChild(upBtn);
+
+        // Rating buttons in overlay
+        var rateUp = document.createElement('button');
+        rateUp.className = 'ig-rate-btn' + (_imageRatings[img.filename] === 'up' ? ' active-up' : '');
+        rateUp.id = 'ig-rate-up-' + idx;
+        rateUp.title = 'Thumbs up';
+        rateUp.textContent = '👍';
+        rateUp.onclick = (function(f, i) {
+            return function(e) { e.stopPropagation(); rateImage(f, 'up', i); };
+        })(img.filename, idx);
+        overlay.appendChild(rateUp);
+
+        var rateDown = document.createElement('button');
+        rateDown.className = 'ig-rate-btn' + (_imageRatings[img.filename] === 'down' ? ' active-down' : '');
+        rateDown.id = 'ig-rate-down-' + idx;
+        rateDown.title = 'Thumbs down';
+        rateDown.textContent = '👎';
+        rateDown.onclick = (function(f, i) {
+            return function(e) { e.stopPropagation(); rateImage(f, 'down', i); };
+        })(img.filename, idx);
+        overlay.appendChild(rateDown);
+
         item.appendChild(overlay);
 
         gallery.appendChild(item);
     });
+}
+
+// ─── Rating ───
+async function rateImage(filename, rating, galleryIdx) {
+    var current = _imageRatings[filename];
+    var newRating = (current === rating) ? '' : rating;
+
+    try {
+        var r = await fetch('/studio/image/api/image/rate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: filename, rating: newRating }),
+        });
+        var data = await r.json();
+        if (!data.ok && data.error) { showToast(data.error, 'error'); return; }
+
+        _imageRatings[filename] = newRating || null;
+
+        // Update gallery card buttons
+        var upEl = document.getElementById('ig-rate-up-' + galleryIdx);
+        var downEl = document.getElementById('ig-rate-down-' + galleryIdx);
+        if (upEl) upEl.className = 'ig-rate-btn' + (newRating === 'up' ? ' active-up' : '');
+        if (downEl) downEl.className = 'ig-rate-btn' + (newRating === 'down' ? ' active-down' : '');
+
+        // Update lightbox rating buttons if open for this image
+        if (allImages[lightboxIndex] && allImages[lightboxIndex].filename === filename) {
+            updateLightboxRating(newRating);
+        }
+
+        showToast(newRating ? 'Rated ' + (newRating === 'up' ? '👍' : '👎') : 'Rating cleared', 'success');
+    } catch (e) {
+        showToast('Rating failed', 'error');
+    }
+
+}
+
+function updateLightboxRating(rating) {
+    var up = document.getElementById('lb-rate-up');
+    var down = document.getElementById('lb-rate-down');
+    if (up) up.className = 'ig-lightbox-rate-btn' + (rating === 'up' ? ' active-up' : '');
+    if (down) down.className = 'ig-lightbox-rate-btn' + (rating === 'down' ? ' active-down' : '');
 }
 
 function buildProxyUrl(img) {
@@ -880,6 +981,13 @@ function openLightbox(idx) {
     document.getElementById('lightbox-counter').textContent = (idx + 1) + ' / ' + allImages.length;
     document.getElementById('lightbox').classList.add('active');
     document.body.style.overflow = 'hidden';
+    updateLightboxRating(_imageRatings[allImages[idx].filename] || null);
+}
+
+function lbRateImage(rating) {
+    var img = allImages[lightboxIndex];
+    if (!img) return;
+    rateImage(img.filename, rating, lightboxIndex);
 }
 
 function closeLightbox(event) {
@@ -894,6 +1002,7 @@ function lightboxNav(dir, event) {
     lightboxIndex = (lightboxIndex + dir + allImages.length) % allImages.length;
     document.getElementById('lightbox-img').src = buildProxyUrl(allImages[lightboxIndex]);
     document.getElementById('lightbox-counter').textContent = (lightboxIndex + 1) + ' / ' + allImages.length;
+    updateLightboxRating(_imageRatings[allImages[lightboxIndex].filename] || null);
 }
 
 document.addEventListener('keydown', function(e) {
