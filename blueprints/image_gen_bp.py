@@ -7,13 +7,16 @@ Server builds workflows from parameters — clients never send raw ComfyUI JSON.
 
 from __future__ import annotations
 
+import json
+import os
 import time
 import threading
+from pathlib import Path
 
 from flask import (Blueprint, Response, current_app, jsonify,
                    render_template, request, session)
 
-from shared import load_yaml, save_yaml
+from shared import load_yaml, save_yaml, CONFIG_DIR
 from training import comfyui
 
 image_gen_bp = Blueprint('image_gen', __name__, url_prefix='/studio/image')
@@ -479,3 +482,253 @@ def api_profile_delete(name):
     del profiles[name]
     save_yaml('image_profiles.yaml', all_data)
     return jsonify({'ok': True})
+
+
+# ---------------------------------------------------------------------------
+# Gallery — persistent, disk-backed, orracle-namespaced
+# ---------------------------------------------------------------------------
+
+RATINGS_FILE = os.path.join(CONFIG_DIR, 'image_ratings.jsonl')
+_ratings_lock = threading.Lock()
+
+# Image extensions recognised by the gallery
+_IMG_EXTS = {'.png', '.jpg', '.jpeg', '.webp'}
+
+
+def _resolve_gallery_dir() -> Path | None:
+    """Return the local path to the orracle output directory, or None.
+
+    Priority: LOCAL_OUTPUT_DIR/orracle (default ComfyUI layout on this machine).
+    The orracle filename prefix puts images in output/orracle/ on each machine.
+    """
+    base = comfyui.LOCAL_OUTPUT_DIR
+    candidate = base / 'orracle'
+    if candidate.exists():
+        return candidate
+    # Fallback: vault symlink target / orracle
+    vault_candidate = comfyui.VAULT_OUTPUT_DIR / 'orracle'
+    if vault_candidate.exists():
+        return vault_candidate
+    return None
+
+
+def _load_ratings() -> dict:
+    """Load all ratings from JSONL file. Returns {filename: rating} dict."""
+    ratings = {}
+    try:
+        with _ratings_lock:
+            with open(RATINGS_FILE) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        if entry.get('filename') and entry.get('rating') in ('up', 'down'):
+                            ratings[entry['filename']] = entry['rating']
+                    except json.JSONDecodeError:
+                        pass
+    except FileNotFoundError:
+        pass
+    return ratings
+
+
+def _save_rating(filename: str, rating: str | None):
+    """Append a rating entry to the JSONL file.
+
+    A None rating clears (tombstone approach — last write wins on load).
+    """
+    entry = {
+        'filename': filename,
+        'rating': rating,
+        'ts': time.time(),
+    }
+    with _ratings_lock:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(RATINGS_FILE, 'a') as f:
+            f.write(json.dumps(entry) + '\n')
+
+
+def _scan_gallery_dir(gallery_dir: Path, offset: int = 0, limit: int = 50,
+                      date_from: str = '', date_to: str = '',
+                      prefix: str = '', rating_filter: str = '',
+                      ratings: dict = None) -> tuple[list, int]:
+    """Scan directory for images. Returns (items, total_count).
+
+    items are sorted newest-first.  Each item:
+        {filename, subfolder, type, ts, ts_str, size, rating}
+    """
+    if ratings is None:
+        ratings = {}
+
+    try:
+        entries = [
+            e for e in gallery_dir.iterdir()
+            if e.is_file() and e.suffix.lower() in _IMG_EXTS
+        ]
+    except OSError:
+        return [], 0
+
+    # Apply filename prefix filter
+    if prefix:
+        entries = [e for e in entries if e.name.startswith(prefix)]
+
+    # Build item dicts with stat info
+    items = []
+    for e in entries:
+        try:
+            st = e.stat()
+            ts = st.st_mtime
+        except OSError:
+            ts = 0
+        items.append({
+            'filename': e.name,
+            'subfolder': 'orracle',
+            'type': 'output',
+            'ts': ts,
+            'ts_str': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts)),
+            'date': time.strftime('%Y-%m-%d', time.localtime(ts)),
+            'size': st.st_size if ts else 0,
+            'rating': ratings.get(e.name),
+        })
+
+    # Date range filter
+    if date_from:
+        items = [i for i in items if i['date'] >= date_from]
+    if date_to:
+        items = [i for i in items if i['date'] <= date_to]
+
+    # Rating filter: 'rated' = has any rating, 'unrated' = no rating, 'up'/'down' = specific
+    if rating_filter == 'rated':
+        items = [i for i in items if i['rating']]
+    elif rating_filter == 'unrated':
+        items = [i for i in items if not i['rating']]
+    elif rating_filter in ('up', 'down'):
+        items = [i for i in items if i['rating'] == rating_filter]
+
+    # Sort newest first
+    items.sort(key=lambda x: x['ts'], reverse=True)
+
+    total = len(items)
+    page = items[offset:offset + limit]
+    return page, total
+
+
+@image_gen_bp.route('/gallery')
+def gallery():
+    """Persistent image gallery — orracle-namespaced ComfyUI output."""
+    gallery_dir = _resolve_gallery_dir()
+    return render_template(
+        'studio/gallery.html',
+        gallery_dir=str(gallery_dir) if gallery_dir else None,
+        gallery_available=gallery_dir is not None,
+    )
+
+
+@image_gen_bp.route('/api/gallery')
+def api_gallery():
+    """Return paginated gallery images with rating data.
+
+    Query params:
+        offset  int     (default 0)
+        limit   int     (default 50, max 200)
+        from    str     date YYYY-MM-DD
+        to      str     date YYYY-MM-DD
+        prefix  str     filename prefix filter
+        rating  str     rated | unrated | up | down
+    """
+    offset = max(0, int(request.args.get('offset', 0)))
+    limit = min(200, max(1, int(request.args.get('limit', 50))))
+    date_from = request.args.get('from', '')
+    date_to = request.args.get('to', '')
+    prefix = request.args.get('prefix', '')
+    rating_filter = request.args.get('rating', '')
+
+    gallery_dir = _resolve_gallery_dir()
+    if not gallery_dir:
+        return jsonify({'items': [], 'total': 0, 'offset': offset,
+                        'limit': limit, 'available': False})
+
+    ratings = _load_ratings()
+    items, total = _scan_gallery_dir(
+        gallery_dir, offset=offset, limit=limit,
+        date_from=date_from, date_to=date_to,
+        prefix=prefix, rating_filter=rating_filter,
+        ratings=ratings,
+    )
+
+    return jsonify({
+        'items': items,
+        'total': total,
+        'offset': offset,
+        'limit': limit,
+        'available': True,
+        'has_more': offset + limit < total,
+    })
+
+
+@image_gen_bp.route('/api/gallery/delete', methods=['POST'])
+def api_gallery_delete():
+    """Delete images by filename list.
+
+    Body: {filenames: ["a.png", "b.png", ...]}
+    Deletes from local gallery dir only (remote SSH not implemented here;
+    orracle runs on orrgate which has the NAS mounted).
+    """
+    data = request.json or {}
+    filenames = data.get('filenames', [])
+    if not filenames:
+        return jsonify({'error': 'filenames required'}), 400
+
+    gallery_dir = _resolve_gallery_dir()
+    if not gallery_dir:
+        return jsonify({'error': 'Gallery directory not found'}), 404
+
+    deleted = []
+    errors = []
+    for fname in filenames:
+        # Sanitise — no path traversal
+        safe = Path(fname).name
+        if not safe or safe != fname:
+            errors.append(f'Invalid filename: {fname}')
+            continue
+        fpath = gallery_dir / safe
+        try:
+            fpath.unlink()
+            deleted.append(safe)
+        except FileNotFoundError:
+            errors.append(f'Not found: {safe}')
+        except OSError as e:
+            errors.append(f'Error deleting {safe}: {e}')
+
+    return jsonify({'deleted': deleted, 'errors': errors, 'ok': len(deleted) > 0})
+
+
+# ---------------------------------------------------------------------------
+# API — per-image rating
+# ---------------------------------------------------------------------------
+
+@image_gen_bp.route('/api/image/rate', methods=['POST'])
+def api_image_rate():
+    """Persist a thumbs-up / thumbs-down rating for an image.
+
+    Body:
+        filename: str       — image filename (basename only)
+        rating:   str       — "up", "down", or "" / null to clear
+    """
+    data = request.json or {}
+    filename = (data.get('filename') or '').strip()
+    rating = (data.get('rating') or '').strip().lower() or None
+
+    if not filename:
+        return jsonify({'error': 'filename required'}), 400
+    if rating and rating not in ('up', 'down'):
+        return jsonify({'error': 'rating must be "up", "down", or empty to clear'}), 400
+
+    # Sanitise
+    safe = Path(filename).name
+    if safe != filename:
+        return jsonify({'error': 'Invalid filename'}), 400
+
+    _save_rating(safe, rating)
+    return jsonify({'ok': True, 'filename': safe, 'rating': rating})
