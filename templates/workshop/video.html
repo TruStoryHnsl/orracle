@@ -1,0 +1,309 @@
+{% extends "workshop/layout.html" %}
+{% block title %}Video Training — Orracle{% endblock %}
+
+{% block head %}
+<style>
+.video-layout { display: grid; grid-template-columns: 320px 1fr; gap: var(--space-2xl); min-height: 60vh; }
+.video-sidebar { display: flex; flex-direction: column; gap: var(--space-lg); }
+.video-main { display: flex; flex-direction: column; gap: var(--space-lg); }
+
+.ckpt-row { display: flex; justify-content: space-between; align-items: center; padding: var(--space-sm) 0; border-bottom: 1px solid var(--surface-container-high); font-size: var(--font-size-sm); }
+.ckpt-row:last-child { border-bottom: none; }
+.ckpt-label { color: var(--on-surface-variant); font-family: var(--font-mono); font-size: var(--font-size-xs); }
+.ckpt-value { font-family: var(--font-mono); color: var(--on-surface); }
+
+.status-badge { display: inline-flex; align-items: center; gap: var(--space-sm); padding: 2px 10px; border-radius: 100px; font-size: var(--font-size-xs); font-family: var(--font-mono); }
+.status-badge.running { background: color-mix(in srgb, var(--primary) 15%, transparent); color: var(--primary); }
+.status-badge.idle { background: var(--surface-container-high); color: var(--on-surface-variant); }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.status-dot.pulse { animation: pulse 1.2s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+.log-panel { background: var(--surface-container-low); border: 1px solid var(--outline-variant); border-radius: 0; padding: var(--space-md); height: 320px; overflow-y: auto; font-family: var(--font-mono); font-size: var(--font-size-xs); line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+.log-panel .log-line { color: var(--on-surface-variant); }
+.log-panel .log-line.metric { color: var(--primary); }
+.log-panel .log-line.val { color: #a8e6cf; }
+.log-panel .log-line.system { color: var(--on-surface); opacity: 0.5; font-style: italic; }
+
+.metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-md); }
+.metric-card { background: var(--surface-container); padding: var(--space-md) var(--space-lg); }
+.metric-name { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--on-surface-variant); text-transform: uppercase; letter-spacing: 0.08em; }
+.metric-val { font-family: var(--font-mono); font-size: 1.4rem; color: var(--primary); margin-top: var(--space-xs); }
+
+.progress-bar-wrap { background: var(--surface-container-high); height: 6px; border-radius: 0; overflow: hidden; }
+.progress-bar-fill { height: 100%; background: var(--primary); transition: width 0.5s ease; }
+
+.job-history { display: flex; flex-direction: column; gap: 0; }
+.job-row { display: flex; justify-content: space-between; align-items: center; padding: var(--space-sm) 0; border-bottom: 1px solid var(--surface-container-high); font-size: var(--font-size-xs); }
+.job-row:last-child { border-bottom: none; }
+.job-id { font-family: var(--font-mono); color: var(--on-surface-variant); }
+.job-status-ok { color: #a8e6cf; }
+.job-status-fail { color: #ff6b6b; }
+.job-status-run { color: var(--primary); }
+
+@media (max-width: 767px) { .video-layout { grid-template-columns: 1fr; } .metric-grid { grid-template-columns: repeat(2, 1fr); } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="video-layout">
+
+    {# ═══ Sidebar ═══ #}
+    <div class="video-sidebar">
+
+        {# Checkpoint status #}
+        <div class="card">
+            <div class="card-title">Checkpoint</div>
+            {% if ckpt %}
+            <div class="ckpt-row">
+                <span class="ckpt-label">Step</span>
+                <span class="ckpt-value" id="ckpt-step">{{ ckpt.step if ckpt.step is not none else '—' }}</span>
+            </div>
+            <div class="ckpt-row">
+                <span class="ckpt-label">Saved</span>
+                <span class="ckpt-value">{{ ckpt.mtime }}</span>
+            </div>
+            <div class="ckpt-row">
+                <span class="ckpt-label">Size</span>
+                <span class="ckpt-value">{{ ckpt.size_mb }} MB</span>
+            </div>
+            {% else %}
+            <div style="color:var(--on-surface-variant);font-size:var(--font-size-sm);">No checkpoint found. Fresh start.</div>
+            {% endif %}
+        </div>
+
+        {# Run status #}
+        <div class="card">
+            <div class="card-title">Status</div>
+            <div style="margin-bottom:var(--space-md)">
+                {% if running_job %}
+                <span class="status-badge running">
+                    <span class="status-dot pulse"></span> Running
+                </span>
+                <div style="margin-top:var(--space-sm);font-family:var(--font-mono);font-size:var(--font-size-xs);color:var(--on-surface-variant)">
+                    job {{ running_job.id }}
+                </div>
+                {% else %}
+                <span class="status-badge idle">
+                    <span class="status-dot"></span> Idle
+                </span>
+                {% endif %}
+            </div>
+
+            {# Start / Resume / Stop #}
+            {% if running_job %}
+            <button class="btn btn-danger" id="btn-stop" onclick="stopJob('{{ running_job.id }}')">Stop</button>
+            {% else %}
+            <div style="display:flex;flex-direction:column;gap:var(--space-sm)">
+                <button class="btn btn-primary" id="btn-start" onclick="startJob(false)">
+                    {% if ckpt %}Start Fresh{% else %}Start{% endif %}
+                </button>
+                {% if ckpt %}
+                <button class="btn btn-secondary" id="btn-resume" onclick="startJob(true)">Resume from step {{ ckpt.step if ckpt.step is not none else '?' }}</button>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+
+        {# Config summary #}
+        <div class="card">
+            <div class="card-title">Config</div>
+            <div class="ckpt-row">
+                <span class="ckpt-label">max_steps</span>
+                <span class="ckpt-value">200,000</span>
+            </div>
+            <div class="ckpt-row">
+                <span class="ckpt-label">batch_size</span>
+                <span class="ckpt-value">32</span>
+            </div>
+            <div class="ckpt-row">
+                <span class="ckpt-label">lr</span>
+                <span class="ckpt-value">1e-4</span>
+            </div>
+            <div class="ckpt-row">
+                <span class="ckpt-label">device</span>
+                <span class="ckpt-value">auto</span>
+            </div>
+            <div class="ckpt-row">
+                <span class="ckpt-label">save_every</span>
+                <span class="ckpt-value">500</span>
+            </div>
+        </div>
+
+    </div>
+
+    {# ═══ Main panel ═══ #}
+    <div class="video-main">
+
+        {# Live metrics #}
+        <div class="metric-grid">
+            <div class="metric-card">
+                <div class="metric-name">Step</div>
+                <div class="metric-val" id="m-step">—</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-name">Loss</div>
+                <div class="metric-val" id="m-loss">—</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-name">Accuracy</div>
+                <div class="metric-val" id="m-acc">—</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-name">it/s</div>
+                <div class="metric-val" id="m-its">—</div>
+            </div>
+        </div>
+
+        {# Progress bar #}
+        <div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:var(--space-xs);font-family:var(--font-mono);font-size:var(--font-size-xs);color:var(--on-surface-variant)">
+                <span>Progress</span>
+                <span id="m-pct">—</span>
+            </div>
+            <div class="progress-bar-wrap">
+                <div class="progress-bar-fill" id="m-bar" style="width:0%"></div>
+            </div>
+        </div>
+
+        {# Log output #}
+        <div>
+            <div style="font-family:var(--font-mono);font-size:var(--font-size-xs);color:var(--on-surface-variant);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:var(--space-sm);">Log</div>
+            <div class="log-panel" id="log-panel">
+                <span class="log-line system">Waiting for job to start…</span>
+            </div>
+        </div>
+
+        {# Job history #}
+        {% if recent_jobs %}
+        <div class="card">
+            <div class="card-title">Recent Jobs</div>
+            <div class="job-history">
+                {% for job in recent_jobs %}
+                <div class="job-row">
+                    <span class="job-id">{{ job.id }}</span>
+                    <span>{{ job.started or '' }}</span>
+                    <span class="
+                        {% if job.status == 'completed' %}job-status-ok
+                        {% elif job.status == 'failed' %}job-status-fail
+                        {% elif job.status == 'running' %}job-status-run
+                        {% endif %}">{{ job.status }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+    </div>
+</div>
+
+<script>
+let currentJobId = {{ ('\"' + running_job.id + '\"') | safe if running_job else 'null' }};
+let sseSource = null;
+
+function appendLog(text, cls) {
+    const panel = document.getElementById('log-panel');
+    const line = document.createElement('div');
+    line.className = cls || 'log-line';
+    line.textContent = text;
+    panel.appendChild(line);
+    panel.scrollTop = panel.scrollHeight;
+}
+
+function clearLog() {
+    const panel = document.getElementById('log-panel');
+    while (panel.firstChild) {
+        panel.removeChild(panel.firstChild);
+    }
+}
+
+function updateMetrics(m) {
+    if (m.step !== undefined) document.getElementById('m-step').textContent = m.step.toLocaleString();
+    if (m.loss !== undefined) document.getElementById('m-loss').textContent = m.loss.toFixed(4);
+    if (m.acc  !== undefined) document.getElementById('m-acc').textContent = (m.acc * 100).toFixed(1) + '%';
+    var total = m.total || 200000;
+    if (m.step !== undefined) {
+        var pct = Math.min(100, (m.step / total) * 100);
+        document.getElementById('m-bar').style.width = pct + '%';
+        document.getElementById('m-pct').textContent = pct.toFixed(1) + '%';
+    }
+}
+
+function connectSSE(jobId) {
+    if (sseSource) { sseSource.close(); sseSource = null; }
+    clearLog();
+    appendLog('Connecting to job ' + jobId + '…', 'log-line system');
+
+    sseSource = new EventSource('/workshop/video/api/stream/' + jobId);
+    sseSource.onmessage = function(e) {
+        var msg = JSON.parse(e.data);
+        if (msg.type === 'log') {
+            var cls = 'log-line';
+            if (msg.line.startsWith('step ')) cls = 'log-line metric';
+            else if (msg.line.startsWith('[val ')) cls = 'log-line val';
+            appendLog(msg.line, cls);
+        } else if (msg.type === 'metric') {
+            updateMetrics(msg);
+        } else if (msg.type === 'done') {
+            appendLog('[done] exit_code=' + msg.exit_code, 'log-line system');
+            sseSource.close();
+            sseSource = null;
+            currentJobId = null;
+            setTimeout(function() { location.reload(); }, 1500);
+        } else if (msg.type === 'error') {
+            appendLog('[error] ' + msg.message, 'log-line system');
+            sseSource.close();
+        }
+    };
+    sseSource.onerror = function() {
+        appendLog('[stream disconnected]', 'log-line system');
+        sseSource.close();
+    };
+}
+
+function startJob(resume) {
+    var btn = document.getElementById(resume ? 'btn-resume' : 'btn-start');
+    if (btn) { btn.disabled = true; btn.textContent = 'Starting\u2026'; }
+
+    fetch('/workshop/video/api/start', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({resume: resume}),
+    }).then(function(resp) {
+        return resp.json().then(function(data) { return {ok: resp.ok, data: data}; });
+    }).then(function(r) {
+        if (!r.ok) {
+            alert('Error: ' + (r.data.error || 'unknown'));
+            if (btn) { btn.disabled = false; btn.textContent = resume ? 'Resume' : 'Start'; }
+            return;
+        }
+        currentJobId = r.data.job_id;
+        connectSSE(currentJobId);
+    }).catch(function(err) {
+        alert('Request failed: ' + err);
+        if (btn) { btn.disabled = false; }
+    });
+}
+
+function stopJob(jobId) {
+    var btn = document.getElementById('btn-stop');
+    if (btn) { btn.disabled = true; btn.textContent = 'Stopping\u2026'; }
+
+    fetch('/workshop/video/api/stop/' + jobId, {method: 'POST'})
+    .then(function(resp) { return resp.json(); })
+    .then(function(data) {
+        if (!data.ok) alert('Stop failed: ' + (data.error || 'unknown'));
+        if (sseSource) { sseSource.close(); sseSource = null; }
+        setTimeout(function() { location.reload(); }, 800);
+    }).catch(function(err) {
+        alert('Request failed: ' + err);
+        if (btn) { btn.disabled = false; }
+    });
+}
+
+// Auto-connect if a job is already running
+if (currentJobId) {
+    connectSSE(currentJobId);
+}
+</script>
+{% endblock %}
