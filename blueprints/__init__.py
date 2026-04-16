@@ -22,10 +22,12 @@ def register_blueprints(app):
     from blueprints.training_bp import training_bp
     from blueprints.export_bp import export_bp
     from blueprints.audit_bp import audit_bp
+    from blueprints.video_bp import video_bp
     app.register_blueprint(pipeline_bp)
     app.register_blueprint(training_bp)
     app.register_blueprint(export_bp)
     app.register_blueprint(audit_bp)
+    app.register_blueprint(video_bp)
 
     # Machines
     from blueprints.machines_bp import machines_bp
