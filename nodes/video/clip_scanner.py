@@ -46,6 +46,9 @@ class ClipInfo:
 # Regex for current naming: YYMMDD-HHMMSS-streamer_id-N.mp4
 _CLIP_RE = re.compile(r'^(\d{6})-(\d{6})-(.+)-([123])\.mp4$')
 
+# Before-offsets per clip type (must match cbtrimweb trimmer.py)
+_BEFORE_OFFSET = {1: 900, 2: 120, 3: 10}  # long, medium, short
+
 
 def _parse_key_moment(comment: str) -> float | None:
     """Parse key_moment=HH:MM:SS from comment tag into seconds."""
@@ -54,6 +57,29 @@ def _parse_key_moment(comment: str) -> float | None:
         h, mi, s = int(m.group(1)), int(m.group(2)), int(m.group(3))
         return h * 3600 + mi * 60 + s
     return None
+
+
+def _derive_key_moment(clip_type: int, time_str: str, duration: float) -> float | None:
+    """Derive key_moment from clip structure when no explicit metadata exists.
+
+    Every clip is trimmed around a source timestamp (the HHMMSS in the filename).
+    The key moment in the clip is always at the before_offset position, clamped
+    to the actual clip duration when duration is known.
+    """
+    before = _BEFORE_OFFSET.get(clip_type)
+    if before is None:
+        return None
+    # Source timestamp in the daily recording
+    try:
+        hs, ms, ss = int(time_str[0:2]), int(time_str[2:4]), int(time_str[4:6])
+        source_ts = hs * 3600 + ms * 60 + ss
+    except (ValueError, IndexError):
+        source_ts = before + 1  # assume clip is not near start
+    km = min(source_ts, before)
+    # Clamp to duration only if we have a reliable duration
+    if duration > 2:
+        km = min(km, duration - 1)
+    return float(km)
 
 
 def _probe_clip(path: str, timeout: int = 10) -> dict:
@@ -128,7 +154,9 @@ def scan_clips(clip_dir: str, clip_types: list[str] | None = None,
                 probe = _probe_clip(clip_path)
                 clip.duration = probe.get('duration', 0)
                 comment = probe.get('comment', '')
-                clip.key_moment = _parse_key_moment(comment)
+                explicit = _parse_key_moment(comment)
+                clip.key_moment = explicit if explicit is not None else \
+                    _derive_key_moment(int(ctype), time_str, clip.duration)
 
             clips.append(clip)
 
